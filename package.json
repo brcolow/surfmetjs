@@ -10,5 +10,6 @@
 	"author": "Michael Ennen (brcolow)",
 	"license": "MIT",
 	"dependencies": {
+		"mathjs": "^13.0.3"
 	}
 }

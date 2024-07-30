@@ -9,9 +9,6 @@ These can all be solved as non-linear minimization problems.
 
 # Least Squares Circle (LSC)
 
-https://github.com/AlliedToasters/circle-fit/blob/master/src/circle_fit/circle_fit.py
-https://people.cas.uab.edu/~mosya/cl/LM.m
-http://www.math.uab.edu/~chernov/cl/MATLABcircle.html
 https://github.com/mdoube/BoneJ/blob/17ee483603afa8a7efb745512be60a29e093c94e/src/org/doube/geometry/FitCircle.java#L43
 
 Minimize:
@@ -28,32 +25,7 @@ where:
 
 This objective function represents the sum of squared distances between each data point (x_i, y_i) and the fitted circle with center (a, b) and radius r. The minimization process aims to find the circle parameters that minimize this total squared distance, essentially providing the best fit based on minimizing these individual point-to-circle distances.
 
-Here's a breakdown of why the term (r^2) is subtracted:
-
-    The squared distance between a point and the circle center represents the ideal distance if the point lies perfectly on the circle.
-    Subtracting r^2 from this term effectively removes the squared radius component from the ideal distance, focusing on minimizing the deviations from the ideal scenario.
-
 Will use Levenberg–Marquardt algorithm to solve this.
-
-The below three would need an adapted LM algorithm:
-
-    Core functionality: The LM algorithm excels at iteratively refining estimates for parameters to minimize a non-linear objective function. This core functionality is applicable to all four circle fitting problems we discussed.
-    Objective functions: MZC, MCC, and MIC all require minimizing or maximizing a function (radius) subject to geometric constraints expressed through inequalities. These constraints can be incorporated into the optimization process.
-
-Implementation Details:
-
-For MZC, MCC, and MIC, the objective function becomes the radius (r) to be minimized/maximized. The constraints can be handled in two ways:
-
-    Penalty Function Approach: Introduce a penalty term in the objective function that heavily penalizes violations of the constraints.  The LM algorithm then minimizes the combined objective function, effectively pushing the solution towards configurations that satisfy the constraints.
-
-    Projected Gradient Approach: Modify the update step within the LM algorithm to project the gradient direction onto a feasible space that satisfies the constraints.
-
-Alternative Algorithms:
-
-While the LM algorithm is a popular choice, other non-linear optimization techniques can also be used for these problems, such as:
-
-    Sequential Quadratic Programming (SQP): This method can be more efficient for certain types of constraints.
-    Simulated Annealing (SA): This is a stochastic approach that can be useful for complex problems with many local minima.
 
 # Minimum Zone Circle (MZC)
 
@@ -102,14 +74,43 @@ These objective functions, along with the associated constraints, are used withi
 
 ## Papers
 
-The paper we will try and use for the implementation of MZC, MCC and MIC will be calvo2015:
+The paper we will try and use for the implementation of MZC, MCC and MIC will be 
 
-Roque Calvo, Emilio Gómez,
-Accurate evaluation of functional roundness from point coordinates,
-Measurement,
-Volume 73,
-2015,
-Pages 211-225,
-ISSN 0263-2241,
-https://doi.org/10.1016/j.measurement.2015.04.009.
+## Surface Metrology
 
+### Surface Texture Parameters
+    Ft Pa Pdsm Phsc Pku Pm0 Pm2 Pm4
+     Pp Ppc Pq Ps Psk Psm Pt Pv PVc
+    Ra Ra1 Ra1l Ra7 Ra7l Rc Rcl Rdmd Rdmn Rdq
+    Rdsk Rhsc Rk Rk+vk Rku Rm0 Rm2 Rm4 Rmax
+    Rmq Rmr1 Rmr2 Rp Rpc Rpk Rpk* Rpk/k Rpk+k Rpm
+    Rpm/3z Rpm7 Rpm7l Rpq Rq Rs Rsk Rsm
+    Rt Rtwi Rv RVc Rvk Rvk* Rvk/k Rvm Rvo Rvq
+    Ry Rz1max RzDIN RzJIS R3z
+    Wa Wc Wcvx Wcvxl Wcvxm Wdq
+    Weslp Weslpl Wlslp Wlslpl Wp Wpc Wpl Wpr Wq
+    Ws Wseg Wsegl Wsm Wt Wtc Wv Wvda Wvdas
+    Wvdc Wvdd Wvddl Wvdm Wvdmp Wvoid
+    AR AW R Rx W Wte Wx
+    Bearing Ratios (tpa/tpi, Pmr/Rmr): 10 Primary & 10 Roughness
+    Htp Values (PHtp/RHtp): 10 Primary & 10 Roughness
+
+### Filters
+
+    Gaussian
+    Spline Based Gaussian (with adjustable tension
+    Valley Suppression (ISO 13565-1 – 1996)
+    Robust Spline-Based Gaussian (based on robust regression)
+    Morphological Closing Filter (circular element applied to waviness profile)
+    Morphological Opening Filter (circular element applied to waviness profile)
+
+### Form removal
+
+    Instrument reference (mean suppression)
+    Least Squares Line
+    Least Squares Arc
+    Fixed Radius
+    Least Squares Polynomial (user specified order)
+    Spline Filter (for bandpass waviness with a user specified cutoff)
+    Asphere (user defined coefficients with optional radius optimization)
+    Free Form (user defined coordinates with optional pre-filtering)
