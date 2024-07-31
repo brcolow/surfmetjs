@@ -526,7 +526,7 @@ print(radius_nist_data)
 np_fft = np.fft.rfft2(radius_nist_data)
 amplitudes = (2 / n_samples) * np.abs(np_fft) 
 frequencies = np.fft.fftfreq(n_samples) * n_samples * 1
-plt.subplots(subplot_kw={'projection': 'polar'})
+#plt.subplots(subplot_kw={'projection': 'polar'})
 #plt.plot(polar_nist_data)
 plt.plot(frequencies[:len(frequencies) // 2], amplitudes[:len(np_fft) // 2])
 plt.show()
