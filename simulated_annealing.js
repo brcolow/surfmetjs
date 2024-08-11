@@ -1,6 +1,6 @@
-function simulatedAnnealing(points, circleType, initialTemperature, coolingType, maxIterations, maxNeighborIterations, stepSize) {
-  let currentSolution = getInitialSolution(points, circleType);
-  let bestSolution = currentSolution;
+function simulatedAnnealing(points, circleType, initialSolution, initialTemperature, coolingType, maxIterations, maxNeighborIterations, stepSize) {
+  let currentSolution = initialSolution;
+  let bestSolution = initialSolution;
 
   for (let i = 0; i < maxIterations; i++) {
     const temperature = temperatureSchedule(initialTemperature, i, coolingType);
@@ -8,7 +8,6 @@ function simulatedAnnealing(points, circleType, initialTemperature, coolingType,
     // We could repeat the following until equilibrium is approached sufficiently closely (for this temperature value - would need to define that carefully.)
     const neighbor = generateNeighbor(points, circleType, currentSolution, maxNeighborIterations, stepSize);
     if (neighbor === null) {
-      console.log("Couldn't find next neighbor, at iteration: " + i);
       break;
     }
     const deltaEnergy = calculateEnergyDifference(neighbor, currentSolution, circleType, points);
@@ -18,12 +17,8 @@ function simulatedAnnealing(points, circleType, initialTemperature, coolingType,
       currentSolution = neighbor;
     }
 
-    if (evaluateSolution(bestSolution, circleType) > evaluateSolution(currentSolution, circleType)) {
+    if (evaluateSolution(currentSolution, circleType) > evaluateSolution(bestSolution, circleType)) {
       bestSolution = currentSolution;
-    }
-
-    if (i === maxIterations - 1) {
-      console.log("Made it to last iteration: " + i);
     }
   }
 
@@ -59,15 +54,20 @@ function findFarthestPoint(points, point) {
   return { point: farthestPoint, distance: Math.sqrt(maxDistance) };
 }
 
-function getInitialSolution(points, circleType) {
-  switch (circleType) {
-    case "MIC":
-      // Find the point closest to the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
-      return { radius: findNearestPoint(points, [0, 0]).distance, center: [0, 0] };
-    case "MCC":
-      // Find the point farthest from the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
-      return { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] };
-    case "MZC":
+function getInitialSolution(points, circleType, leastSquaresCircle) {
+  // TODO: We could experiment with using the LSC center as the initial solution.
+  if (circleType === "MIC") {
+    const nearestPointDistance = findNearestPoint(points, [leastSquaresCircle.a, leastSquaresCircle.b]).distance;
+    const maxRadius = Math.sqrt(Math.max(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
+    const minRadius = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
+    const offset = ((maxRadius - minRadius) / 100);
+    const withoffset = nearestPointDistance - offset;
+    // Find the point closest to the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
+    return { radius: withoffset, center: [leastSquaresCircle.a, leastSquaresCircle.b] };
+  } else if (circleType === "MCC") {
+    // Find the point farthest from the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
+    return { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] };
+  } else if (circleType === "MZC") {
       // Use the MIC initial guess as the inner circle and the MCC guess as the outer circle.
       return { outerCircle: { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] }, innerCircle: { radius: findNearestPoint(points, [0, 0]).distance, center: [0, 0] } };
   }
@@ -170,6 +170,9 @@ function generateNeighbor(points, circleType, currentSolution, maxNeighborIterat
             break;
           }
         }
+        if (!foundValidNeighbor) {
+          return null;
+        }
         // Make sure no point is strictly outside (can be on) the outer circle.
         for (const point of points) {
           const distance = distanceSquared(point, neighborCandidate.innerCircle.center);
@@ -248,4 +251,4 @@ function areConcentric(circle1, circle2) {
   return dx === 0 && dy === 0;
 }
 
-export { simulatedAnnealing };
+export { simulatedAnnealing, getInitialSolution };
