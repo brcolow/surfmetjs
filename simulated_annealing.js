@@ -61,15 +61,14 @@ function getInitialSolution(points, circleType, leastSquaresCircle) {
     const maxRadius = Math.sqrt(Math.max(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
     const minRadius = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
     const offset = ((maxRadius - minRadius) / 100);
-    const withoffset = nearestPointDistance - offset;
     // Find the point closest to the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
-    return { radius: withoffset, center: [leastSquaresCircle.a, leastSquaresCircle.b] };
+    return { radius: nearestPointDistance - offset, center: [leastSquaresCircle.a, leastSquaresCircle.b] };
   } else if (circleType === "MCC") {
     // Find the point farthest from the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
     return { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] };
   } else if (circleType === "MZC") {
-      // Use the MIC initial guess as the inner circle and the MCC guess as the outer circle.
-      return { outerCircle: { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] }, innerCircle: { radius: findNearestPoint(points, [0, 0]).distance, center: [0, 0] } };
+    // Use the MIC initial guess as the inner circle and the MCC guess as the outer circle.
+    return { outerCircle: { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] }, innerCircle: { radius: findNearestPoint(points, [0, 0]).distance, center: [0, 0] } };
   }
 }
 
@@ -95,26 +94,22 @@ function generateNeighbor(points, circleType, currentSolution, maxNeighborIterat
   for (let i = 0; i < maxNeighborIterations; i++) {
     let neighborCandidate;
     if (circleType !== "MZC") {
-      // FIXME: It doesn't make sense to only change the center because then this neighbor will never have less energy, unless we can include in the energy function
-      // a measure of how close the center is to the centroid of all the points? Something like that (what would be more likely for the MIC to be...) bascially
-      // if we move the center and the new center is farther away from every point (by some measure) then it's a good one to keep as the next solution because
-      // then the chance that the radius can be increased next time is higher. For the MCC we would rate centers that are closer to every point higher.
       if (getRandomBetween(0, 100) > 50) {
         neighborCandidate = {
-          center: [currentSolution.center[0] += getRandomBetween(-stepSize, stepSize), currentSolution.center[1] += getRandomBetween(-stepSize, stepSize)],
+          center: [currentSolution.center[0] + getRandomBetween(-stepSize, stepSize), currentSolution.center[1] + getRandomBetween(-stepSize, stepSize)],
           radius: currentSolution.radius
         };
       } else {
         neighborCandidate = {
-          center: currentSolution.center,
-          radius: currentSolution.radius += getRandomBetween(-stepSize, stepSize)
+          center: [currentSolution.center[0], currentSolution.center[1]],
+          radius: currentSolution.radius + getRandomBetween(-stepSize, stepSize)
         };
       }
 
     } else {
       // When finding the neighbor for MZC we want to share the same center because concentricity must be maintained.
       if (getRandomBetween(0, 100) > 50) {
-        let center = [currentSolution.center[0] += getRandomBetween(-stepSize, stepSize), currentSolution.center[1] += getRandomBetween(-stepSize, stepSize)];
+        let center = [currentSolution.center[0] + getRandomBetween(-stepSize, stepSize), currentSolution.center[1] + getRandomBetween(-stepSize, stepSize)];
         neighborCandidate = {
           outerCircle: {
             center: center,
@@ -125,17 +120,17 @@ function generateNeighbor(points, circleType, currentSolution, maxNeighborIterat
           }
         };
       } else {
+        // TODO: Should we only change one radius at a time?
         neighborCandidate = {
           outerCircle: {
-            center: currentSolution.center,
-            radius: currentSolution.radius += getRandomBetween(-stepSize, stepSize)
+            center: [currentSolution.center[0], currentSolution.center[1]],
+            radius: currentSolution.radius + getRandomBetween(-stepSize, stepSize)
           }, innerCircle: {
-            center: currentSolution.center,
-            radius: currentSolution.radius += getRandomBetween(-stepSize, stepSize)
+            center: [currentSolution.center[0], currentSolution.center[1]],
+            radius: currentSolution.radius + getRandomBetween(-stepSize, stepSize)
           }
         };
       }
-
     }
 
     foundValidNeighbor = true;
