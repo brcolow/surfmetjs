@@ -1,4 +1,6 @@
-function simulatedAnnealing(points, circleType, initialSolution, initialTemperature, coolingType, maxIterations, maxNeighborIterations, stepSize) {
+function simulatedAnnealing(points, circleType, leastSquaresCircle, initialTemperature, coolingType, maxIterations, maxNeighborIterations, stepSize) {
+  const convexHull = computeConvexHull(points);
+  const initialSolution = getInitialSolution(points, "MIC", leastSquaresCircle);
   let currentSolution = initialSolution;
   let bestSolution = initialSolution;
 
@@ -6,8 +8,9 @@ function simulatedAnnealing(points, circleType, initialSolution, initialTemperat
     const temperature = temperatureSchedule(initialTemperature, i, coolingType);
 
     // We could repeat the following until equilibrium is approached sufficiently closely (for this temperature value - would need to define that carefully.)
-    const neighbor = generateNeighbor(points, circleType, currentSolution, maxNeighborIterations, stepSize);
+    const neighbor = generateNeighbor(points, convexHull, circleType, currentSolution, maxNeighborIterations, stepSize);
     if (neighbor === null) {
+      console.log("Could not find next neighbor at iteration: " + i);
       break;
     }
     const deltaEnergy = calculateEnergyDifference(neighbor, currentSolution, circleType, points);
@@ -19,6 +22,10 @@ function simulatedAnnealing(points, circleType, initialSolution, initialTemperat
 
     if (evaluateSolution(currentSolution, circleType) > evaluateSolution(bestSolution, circleType)) {
       bestSolution = currentSolution;
+    }
+
+    if (i + 1 === maxIterations) {
+      console.log("Got to max iterations: " + i);
     }
   }
 
@@ -89,26 +96,54 @@ function temperatureSchedule(initialTemperature, i, coolingType) {
   }
 }
 
-function generateNeighbor(points, circleType, currentSolution, maxNeighborIterations, stepSize) {
+function generateNeighbor(points, convexHull, circleType, currentSolution, maxNeighborIterations, stepSize) {
   let foundValidNeighbor = false;
   for (let i = 0; i < maxNeighborIterations; i++) {
     let neighborCandidate;
+
     if (circleType !== "MZC") {
-      if (getRandomBetween(0, 100) > 50) {
+      const radiusOrCenterOrBoth = getRandomBetween(0, 100);
+      if (radiusOrCenterOrBoth < 33) {
+        // 33% of the time we try generating a new neighbor by changing the center location.
+        const centerXRandomizerExp = getRandomBetween(-6, 0);
+        const centerYRandomizerExp = getRandomBetween(-6, 0);
         neighborCandidate = {
-          center: [currentSolution.center[0] + getRandomBetween(-stepSize, stepSize), currentSolution.center[1] + getRandomBetween(-stepSize, stepSize)],
+          center: [currentSolution.center[0] + getRandomBetween(-stepSize, stepSize) * (10 ** centerXRandomizerExp), currentSolution.center[1] + getRandomBetween(-stepSize * stepSize) * (10 ** centerYRandomizerExp)],
           radius: currentSolution.radius
         };
-      } else {
+      } else if (radiusOrCenterOrBoth < 66) {
+        // 33% of the time we change the radius (but never going smaller for the MIC and never going bigger for the MCC).
+        const radiusRandomizerExp = getRandomBetween(-6, 0);
+        let newRadius;
+        if (circleType === "MIC") {
+          newRadius = currentSolution.radius + getRandomBetween(0, stepSize) * (10 ** radiusRandomizerExp);
+        } else {
+          newRadius = currentSolution.radius - getRandomBetween(0, stepSize) * (10 ** radiusRandomizerExp);
+        }
         neighborCandidate = {
           center: [currentSolution.center[0], currentSolution.center[1]],
-          radius: currentSolution.radius + getRandomBetween(-stepSize, stepSize)
+          radius: newRadius
+        };
+      } else {
+        // 33% of the time change both.
+        const centerXRandomizerExp = getRandomBetween(-6, 0);
+        const centerYRandomizerExp = getRandomBetween(-6, 0);
+        const radiusRandomizerExp = getRandomBetween(-6, 0);
+        let newRadius;
+        if (circleType === "MIC") {
+          newRadius = currentSolution.radius + getRandomBetween(0, stepSize) * (10 ** radiusRandomizerExp);
+        } else {
+          newRadius = currentSolution.radius - getRandomBetween(0, stepSize) * (10 ** radiusRandomizerExp);
+        }
+        neighborCandidate = {
+          center: [currentSolution.center[0] + getRandomBetween(-stepSize, stepSize) * (10 ** centerXRandomizerExp), currentSolution.center[1] + getRandomBetween(-stepSize * stepSize) * (10 ** centerYRandomizerExp)],
+          radius: newRadius
         };
       }
-
     } else {
       // When finding the neighbor for MZC we want to share the same center because concentricity must be maintained.
       if (getRandomBetween(0, 100) > 50) {
+        // Half of the time we try generating a new neighbor by changing the center location.
         let center = [currentSolution.center[0] + getRandomBetween(-stepSize, stepSize), currentSolution.center[1] + getRandomBetween(-stepSize, stepSize)];
         neighborCandidate = {
           outerCircle: {
@@ -121,6 +156,7 @@ function generateNeighbor(points, circleType, currentSolution, maxNeighborIterat
         };
       } else {
         // TODO: Should we only change one radius at a time?
+        // The other half of the time we try changing the radius (TODO: but never going smaller for the inner circle and never going larger for the outer circle?).
         neighborCandidate = {
           outerCircle: {
             center: [currentSolution.center[0], currentSolution.center[1]],
@@ -138,9 +174,17 @@ function generateNeighbor(points, circleType, currentSolution, maxNeighborIterat
     switch (circleType) {
       case "MIC":
         // Make sure no point is strictly inside (can be on) the circle.
+        // FIXME: This is not working correctly because sometimes the center moves outside the circle trace completely and thus no points are inside but that's not a valid candidate...
         for (const point of points) {
           const distance = distanceSquared(point, neighborCandidate.center);
           if (distance < neighborCandidate.radius * neighborCandidate.radius) {
+            foundValidNeighbor = false;
+            break;
+          }
+        }
+        // Need to also make sure that we didn't move center outside the circle trace. We do this by making sure the center is still inside the convex hull of the point cloud.
+        if (foundValidNeighbor) {
+          if (!isPointInPolygon(neighborCandidate.center, convexHull)) {
             foundValidNeighbor = false;
             break;
           }
@@ -151,6 +195,13 @@ function generateNeighbor(points, circleType, currentSolution, maxNeighborIterat
         for (const point of points) {
           const distance = distanceSquared(point, neighborCandidate.center);
           if (distance > neighborCandidate.radius * neighborCandidate.radius) {
+            foundValidNeighbor = false;
+            break;
+          }
+        }
+        // Need to also make sure that we didn't move center outside the circle trace. We do this by making sure the center is still inside the convex hull of the point cloud.
+        if (foundValidNeighbor) {
+          if (!isPointInPolygon(neighborCandidate.center, convexHull)) {
             foundValidNeighbor = false;
             break;
           }
@@ -176,6 +227,13 @@ function generateNeighbor(points, circleType, currentSolution, maxNeighborIterat
             break;
           }
         }
+        // Need to also make sure that we didn't move center outside the circle trace. We do this by making sure the center is still inside the convex hull of the point cloud.
+        if (foundValidNeighbor) {
+          if (!isPointInPolygon(neighborCandidate.center, convexHull)) {
+            foundValidNeighbor = false;
+            break;
+          }
+        }
         // Make sure both circles are concentric.
         if (foundValidNeighbor) {
           foundValidNeighbor = areConcentric(neighborCandidate.outerCircle, neighborCandidate.innerCircle);
@@ -187,7 +245,6 @@ function generateNeighbor(points, circleType, currentSolution, maxNeighborIterat
       return neighborCandidate;
     }
   }
-
   if (!foundValidNeighbor) {
     // We hit maxNeighborIterations and couldn't find a good next neighbor cantidate so we must terminate.
     return null;
@@ -244,6 +301,82 @@ function areConcentric(circle1, circle2) {
 
   // Check if the centers are the same.
   return dx === 0 && dy === 0;
+}
+
+/**
+ * Computes and returns the convex hull of the given points using the Graham scan.
+ */
+function computeConvexHull(points) {
+  // Find the lowest point
+  let minY = Infinity;
+  let minIndex = 0;
+  for (let i = 0; i < points.length; i++) {
+    if (points[i][1] < minY || (points[i][1] === minY && points[i][0] < points[minIndex][0])) {
+      minY = points[i][1];
+      minIndex = i;
+    }
+  }
+
+  // Swap the lowest point to the first position
+  [points[0], points[minIndex]] = [points[minIndex], points[0]];
+
+  // Sort points by polar angle
+  // Note: We may be able to skip this because the circlular trace is always ordered this way...
+  points.sort((a, b) => {
+    const angleA = Math.atan2(a[1] - points[0][1], a[0] - points[0][0]);
+    const angleB = Math.atan2(b[1] - points[0][1], b[0] - points[0][0]);
+    return angleA - angleB;
+  });
+
+  const stack = [];
+  stack.push(points[0]);
+  stack.push(points[1]);
+
+  // Build the convex hull.
+  for (let i = 2; i < points.length; i++) {
+    const top = stack.pop();
+    while (orientation(stack[stack.length - 1], top, points[i]) <= 0) {
+      top = stack.pop();
+    }
+    stack.push(top);
+    stack.push(points[i]);
+  }
+
+  return stack;
+}
+
+/**
+ * Takes an ordered triplet and returns 0, 1, or 2 depending on if the points are orientated colinearly, clockwise, or counter-clockwise respectively.
+ */
+function orientation(p, q, r) {
+  // To find orientation of ordered triplet (p, q, r).
+  // The function returns following values
+  // 0 : Colinear points
+  // 1 : Clockwise points
+  // 2 : Counterclockwise points
+  const val = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1]);
+  if (val === 0) {
+    return 0;  // colinear
+  } else {
+    return (val > 0) ? 1 : 2; // clockwise or counterclock wise
+  }
+}
+
+/**
+ * Returns true if the point is inside the given polygon; false otherwise. Uses the ray casting algorithm (i.e. the crossing number algorithm).
+ */
+function isPointInPolygon(point, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i][0], yi = polygon[i][1];
+    const xj = polygon[j][0], yj = polygon[j][1];
+    const intersect = ((yi > point[1]) != (yj > point[1]))
+      && (point[0] < (xj - xi) * (point[1] - yi) / (yj - yi) + xi);
+    if (intersect) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 export { simulatedAnnealing, getInitialSolution };
