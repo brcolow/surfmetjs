@@ -1,6 +1,6 @@
 function simulatedAnnealing(points, circleType, leastSquaresCircle, initialTemperature, coolingType, maxIterations, maxNeighborIterations, stepSize) {
   const convexHull = computeConvexHull(points);
-  const initialSolution = getInitialSolution(points, "MIC", leastSquaresCircle);
+  const initialSolution = getInitialSolution(points, "MIC", leastSquaresCircle, convexHull);
   let currentSolution = initialSolution;
   let bestSolution = initialSolution;
 
@@ -61,15 +61,32 @@ function findFarthestPoint(points, point) {
   return { point: farthestPoint, distance: Math.sqrt(maxDistance) };
 }
 
-function getInitialSolution(points, circleType, leastSquaresCircle) {
-  // TODO: We could experiment with using the LSC center as the initial solution.
+function getInitialSolution(points, circleType, leastSquaresCircle, convexHull) {
   if (circleType === "MIC") {
     const nearestPointDistance = findNearestPoint(points, [leastSquaresCircle.a, leastSquaresCircle.b]).distance;
     const maxRadius = Math.sqrt(Math.max(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
     const minRadius = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
-    const offset = ((maxRadius - minRadius) / 100);
-    // Find the point closest to the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
-    return { radius: nearestPointDistance - offset, center: [leastSquaresCircle.a, leastSquaresCircle.b] };
+
+    // We want to use the LSC center plus or minus a small amount to randomize the starting center. Go until we find one that is inside the convex hull of the point cloud.
+    let center = [leastSquaresCircle.a + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000), leastSquaresCircle.b + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000)];
+    while (!isPointInPolygon(center, convexHull)) {
+      center = [leastSquaresCircle.a + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000), leastSquaresCircle.b + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000)];
+    }
+
+    // We want to use the radius corresponding to the distance from the LSC center to the nearest point in the point cloud, plus or minus a small amount. Go until we find one such that no points are (strictly) inside the initial solution circle.
+    let radius = nearestPointDistance + getRandomBetween(-(maxRadius - minRadius) / 10000, 0);
+    let tries = 0;
+    while (!noPointsStrictlyInside(points, center, radius)) {
+      radius = nearestPointDistance + getRandomBetween(-(maxRadius - minRadius) / 10000, 0);
+      tries++;
+
+      if (tries > 1000) {
+        console.log("We could not find a suitable radius for the center even after 1000 tries!");
+        return { radius: nearestPointDistance - 0.00001, center: [leastSquaresCircle.a, leastSquaresCircle.b] };
+      }
+    }
+    
+    return { radius: radius, center: [center[0], center[1]] };
   } else if (circleType === "MCC") {
     // Find the point farthest from the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
     return { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] };
@@ -77,6 +94,17 @@ function getInitialSolution(points, circleType, leastSquaresCircle) {
     // Use the MIC initial guess as the inner circle and the MCC guess as the outer circle.
     return { outerCircle: { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] }, innerCircle: { radius: findNearestPoint(points, [0, 0]).distance, center: [0, 0] } };
   }
+}
+
+function noPointsStrictlyInside(points, center, radius) {
+  for (const point of points) {
+    const distance = distanceSquared(point, center);
+    if (distance < radius * radius) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function temperatureSchedule(initialTemperature, i, coolingType) {
@@ -103,17 +131,18 @@ function generateNeighbor(points, convexHull, circleType, currentSolution, maxNe
 
     if (circleType !== "MZC") {
       const radiusOrCenterOrBoth = getRandomBetween(0, 100);
+      const xOrY = getRandomBetween(0, 100);
       if (radiusOrCenterOrBoth < 33) {
         // 33% of the time we try generating a new neighbor by changing the center location.
-        const centerXRandomizerExp = getRandomBetween(-6, 0);
-        const centerYRandomizerExp = getRandomBetween(-6, 0);
+        const centerXRandomizerExp = getRandomBetween(-8, 0);
+        const centerYRandomizerExp = getRandomBetween(-8, 0);
         neighborCandidate = {
-          center: [currentSolution.center[0] + getRandomBetween(-stepSize, stepSize) * (10 ** centerXRandomizerExp), currentSolution.center[1] + getRandomBetween(-stepSize * stepSize) * (10 ** centerYRandomizerExp)],
+          center: [currentSolution.center[0] + getRandomBetween(-stepSize, stepSize) * (10 ** centerXRandomizerExp) * (xOrY < 50 ? 1 : 0), currentSolution.center[1] + getRandomBetween(-stepSize * stepSize) * (10 ** centerYRandomizerExp) * (xOrY > 50 ? 1 : 0)],
           radius: currentSolution.radius
         };
       } else if (radiusOrCenterOrBoth < 66) {
         // 33% of the time we change the radius (but never going smaller for the MIC and never going bigger for the MCC).
-        const radiusRandomizerExp = getRandomBetween(-6, 0);
+        const radiusRandomizerExp = getRandomBetween(-8, 0);
         let newRadius;
         if (circleType === "MIC") {
           newRadius = currentSolution.radius + getRandomBetween(0, stepSize) * (10 ** radiusRandomizerExp);
@@ -126,9 +155,9 @@ function generateNeighbor(points, convexHull, circleType, currentSolution, maxNe
         };
       } else {
         // 33% of the time change both.
-        const centerXRandomizerExp = getRandomBetween(-6, 0);
-        const centerYRandomizerExp = getRandomBetween(-6, 0);
-        const radiusRandomizerExp = getRandomBetween(-6, 0);
+        const centerXRandomizerExp = getRandomBetween(-8, 0);
+        const centerYRandomizerExp = getRandomBetween(-8, 0);
+        const radiusRandomizerExp = getRandomBetween(-8, 0);
         let newRadius;
         if (circleType === "MIC") {
           newRadius = currentSolution.radius + getRandomBetween(0, stepSize) * (10 ** radiusRandomizerExp);
@@ -136,7 +165,7 @@ function generateNeighbor(points, convexHull, circleType, currentSolution, maxNe
           newRadius = currentSolution.radius - getRandomBetween(0, stepSize) * (10 ** radiusRandomizerExp);
         }
         neighborCandidate = {
-          center: [currentSolution.center[0] + getRandomBetween(-stepSize, stepSize) * (10 ** centerXRandomizerExp), currentSolution.center[1] + getRandomBetween(-stepSize * stepSize) * (10 ** centerYRandomizerExp)],
+          center: [currentSolution.center[0] + getRandomBetween(-stepSize, stepSize) * (10 ** centerXRandomizerExp) * (xOrY < 50 ? 1 : 0), currentSolution.center[1] + getRandomBetween(-stepSize * stepSize) * (10 ** centerYRandomizerExp) * (xOrY > 50  ? 1 : 0)],
           radius: newRadius
         };
       }
@@ -379,4 +408,4 @@ function isPointInPolygon(point, polygon) {
   return inside;
 }
 
-export { simulatedAnnealing, getInitialSolution };
+export { simulatedAnnealing, getInitialSolution, computeConvexHull };
