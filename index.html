@@ -1,11 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <title>MoodyJS</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Surface Metrology</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.34.0.min.js" charset="utf-8"></script>
   <script src='./node_modules/mathjs/lib/browser/math.js'></script>
   <script type="module" src="roundness.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+  
+    .container {
+      display: grid;
+      height: 100vh;
+    }
+  
+    .top-row {
+      grid-template-columns: 66% 33%;
+    }
+  
+    .bottom-row {
+      grid-column: 1 / span 2;
+    }
+  
+    #polarChart {
+    }
+  </style>
 </head>
+
 <body>
+  <noscript>This page requires Javascript to run.</noscript>
+  <div class="container">
+    <div class="top-row">
+      <div class="left-column">
+        <div id="polarChart"></div>
+      </div>
+      <div class="right-column">
+      </div>
+    </div>
+    <div class="bottom-row">
+      <canvas id="harmonicChart"></canvas>
+    </div>
+  </div>
+  <div>
+  </div>
 </body>
+
 </html>

@@ -64,4 +64,15 @@ function findMIC(points, leastSquaresCircle, learningRate = 0.00000000001, maxIt
   return params;
 }
 
+/**
+ * Calculates the (squared) distance between two points a and b.
+ * 
+ * @param {*} a First point.
+ * @param {*} b Second point.
+ * @returns The squared distance between points a and b.
+ */
+function distanceSquared(a, b) {
+  return (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]);
+}
+
 export { findMIC }
