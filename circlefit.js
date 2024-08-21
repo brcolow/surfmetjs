@@ -1,3 +1,5 @@
+import { inv, norm, matrix, multiply, pinv, subtract, transpose } from 'mathjs';
+
 /*
  * FitCircle Java class for fitting circles to 2D coordinate data
  *
@@ -39,9 +41,9 @@ function kasaFit(points) {
     xy1[n][2] = 1;
   }
 
-  const XY1 = math.matrix(xy1);
-  const Z = math.matrix(z);
-  const P = XY1.size()[0] === XY1.size()[1] ? math.multiply(math.inv(XY1), Z) : math.multiply(math.pinv(XY1), Z);
+  const XY1 = matrix(xy1);
+  const Z = matrix(z);
+  const P = XY1.size()[0] === XY1.size()[1] ? multiply(inv(XY1), Z) : multiply(pinv(XY1), Z);
 
   const p0 = P.get([0, 0]);
   const p1 = P.get([1, 0]);
@@ -68,8 +70,8 @@ function levenMarqFull(points, lambdaIni = 1) {
   let y = guess.b;
   let r = guess.r;
   const par = [[x, y, r]];
-  let Par = math.matrix(par);
-  let ParTemp = math.matrix(par);
+  let Par = matrix(par);
+  let ParTemp = matrix(par);
   const epsilon = 1e-6;
   let progress = epsilon;
   const iterMax = 50;
@@ -89,8 +91,8 @@ function levenMarqFull(points, lambdaIni = 1) {
     f += (d - r) * (d - r);
   }
 
-  const J = math.matrix(j);
-  const G = math.matrix(g);
+  const J = matrix(j);
+  const G = matrix(g);
 
   let fTemp = 0;
   const jTemp = twoDArray(nPoints + 3, 3);
@@ -107,12 +109,12 @@ function levenMarqFull(points, lambdaIni = 1) {
       G.set([nPoints + 1, 0], 0);
       G.set([nPoints + 2, 0], 0);
 
-      const DelPar = J.size()[0] === J.size()[1] ? math.multiply(math.inv(J), G) : math.multiply(math.pinv(J), G);
-      progress = math.norm(DelPar, 'fro') / (math.norm(Par, 'fro') + epsilon);
+      const DelPar = J.size()[0] === J.size()[1] ? multiply(inv(J), G) : multiply(pinv(J), G);
+      progress = norm(DelPar, 'fro') / (norm(Par, 'fro') + epsilon);
       if (progress < epsilon) {
         break;
       }
-      ParTemp = math.subtract(Par, math.transpose(DelPar));
+      ParTemp = subtract(Par, transpose(DelPar));
       x = ParTemp.get([0, 0]);
       y = ParTemp.get([0, 1]);
       r = ParTemp.get([0, 2]);

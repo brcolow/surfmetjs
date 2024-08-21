@@ -363,7 +363,7 @@ function computeConvexHull(points) {
 
   // Build the convex hull.
   for (let i = 2; i < points.length; i++) {
-    const top = stack.pop();
+    let top = stack.pop();
     while (orientation(stack[stack.length - 1], top, points[i]) <= 0) {
       top = stack.pop();
     }

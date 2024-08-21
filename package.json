@@ -1,15 +1,25 @@
 {
-	"name": "Metrology",
+	"name": "surfmetjs",
 	"version": "0.0.1",
 	"description": "",
 	"main": "roundness.js",
 	"scripts": {
-		"serve": "npx http-server -c-1 -p 5000 -o --cors"
+		"serve": "npx http-server -c-1 -p 5000 -o --cors",
+		"phys": "npx http-server -c-1 -p 5000 -o physics.html --cors",
+		"dev": "vite",
+		"build": "vite build",
+    "preview": "vite preview"
 	},
 	"keywords": [],
 	"author": "Michael Ennen (brcolow)",
 	"license": "MIT",
 	"dependencies": {
-		"mathjs": "^13.0.3"
-	}
+		"chart.js": "^4.4.3",
+		"d3-shape": "^3.2.0",
+		"mathjs": "^13.0.3",
+		"plotly.js-dist-min": "^2.34.0"
+	},
+	"devDependencies": {
+    "vite": "^5.4.1"
+  }
 }

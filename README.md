@@ -46,6 +46,10 @@ This formulation minimizes the radius (r) while ensuring all data points are ins
 
 # Minimum Circumscribed Circle (MCC)
 
+Also referred to as the "Smallest-circle problem".
+
+See https://github.com/hbf/miniball for an example implementation.
+
 Minimize:
 
  r
@@ -60,6 +64,8 @@ Here, the objective is still to minimize the radius (r). However, the constraint
 
 # Maximum Inscribed Circle (MIC)
 
+Also referred to as the "Maximum empty circle problem".
+
 Maximize:
 
  r
@@ -71,10 +77,6 @@ Subject to:
 This formulation maximizes the radius (r) while guaranteeing that all data points are outside or on the circle through the squared distance constraint (reversed inequality compared to MZC).
 
 These objective functions, along with the associated constraints, are used within non-linear optimization algorithms to find the circle parameters (a, b, r) that satisfy the specific geometric conditions for each case (MZC, MCC, MIC).
-
-## Papers
-
-The paper we will try and use for the implementation of MZC, MCC and MIC will be 
 
 ## Surface Metrology
 

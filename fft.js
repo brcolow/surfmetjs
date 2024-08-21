@@ -139,7 +139,7 @@ FFT.prototype._transform4 = function _transform4() {
 
   // Initial step (permute and transform)
   const width = this._width;
-  const step = 1 << width;
+  let step = 1 << width;
   let len = (size / step) << 1;
 
   let outOff;
@@ -325,8 +325,8 @@ FFT.prototype._realTransform4 = function _realTransform4() {
 
   // Initial step (permute and transform)
   const width = this._width;
-  const step = 1 << width;
-  const len = (size / step) << 1;
+  let step = 1 << width;
+  let len = (size / step) << 1;
 
   let outOff;
   let t;
