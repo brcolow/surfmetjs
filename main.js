@@ -6,6 +6,7 @@ import { findMIC } from './gradient_descent.js';
 import * as Plotly from 'plotly.js-dist-min';
 import Chart from 'chart.js/auto';
 import nistData from './nist/cir2d22.ds';
+import { getCurvePoints, getCurvePoints2 } from './cardinal_spline.js';
 
 // const roundnessData = generateRandomRoundnessProfile(numPoints, minRadius, maxRadius);
 
@@ -187,6 +188,32 @@ function distanceSquared(a, b) {
   return (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]);
 }
 
+function calculateCircle(p1, p2, p3) {
+  // Reference: http://www.faqs.org/faqs/graphics/algorithms-faq/
+  // Subject 1.04: How do I generate a circle through three points?
+  const A = p2[0] - p1[0];
+  const B = p2[1] - p1[1];
+  const C = p3[0] - p1[0];
+  const D = p3[1] - p1[1];
+
+  const E = A * (p1[0] + p2[0]) + B * (p1[1] + p2[1]);
+  const F = C * (p1[0] + p3[0]) + D * (p1[1] + p3[1]);
+
+  const G = 2.0 * (A * (p3[1] - p2[1]) - B * (p3[0]- p2[0]));
+  if (G === 0) {
+    throw new Error("The three points given to calculateCircumcenter must not be co-linear.");
+  }
+
+  const cx = (D * E - B * F) / G
+  const cy = (A * F - C * E) / G
+
+  const dx = cx - p1[0];
+  const dy = cy - p1[1];
+  const radiusSquared = dx * dx + dy * dy;
+
+  return { center: [cx, cy], radiusSquared: radiusSquared};
+}
+
 function bruteForceMic(points) {
   let biggestMic = null;
 
@@ -216,11 +243,44 @@ function bruteForceMic(points) {
   return { center: [biggestMic.center[0], biggestMic.center[1]], radius: Math.sqrt(biggestMic.radiusSquared) };
 }
 
-const url = "http://localhost:5000/nist/cir2d22.ds";
-console.log(nistData);
+/**
+ * Uses the Box–Muller transform to return a random number between (min, max) where the probability of picking 
+ * a number from that range follows the normal distribution. From https://stackoverflow.com/a/36481059.
+ * 
+ * See: https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
+ */
+function randomNormalDistribution(min, max) {
+  let u, v;
+
+  // Generate random numbers until both are non-zero
+  do {
+    u = Math.random();
+    v = Math.random();
+  } while (u === 0 || v === 0);
+
+  let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  
+  // Scale and shift to the desired range
+  num = (num + 1) / 2 * (max - min) + min;
+
+  // Resample if outside the range
+  if (num < min || num > max) {
+    return randomNormalDistribution(min, max);
+  }
+
+  return num;
+}
+
+// const url = "http://localhost:5000/nist/cir2d22.ds";
 readPointsFromURL(nistData)
   .then(points => {
     if (points) {
+      console.log(randomNormalDistribution(0, 50));
+      const curvePoints = getCurvePoints(points.flatMap(pair => pair), 0.5, 25, true);
+      const curvePoints2 = getCurvePoints2(points.flatMap(pair => pair), 0.5, 25, true);
+
+      console.log(curvePoints);
+      console.log(curvePoints2);
       const leastSquaresCircle = levenMarqFull(points);
       let timeStart = performance.now();
       const bruceForceMic = bruteForceMic(points);

@@ -887,14 +887,16 @@ xy_nist_data = nist_cir_data_2[:, :2]
 xc,yc,r,_ = cf.least_squares_circle(xy_nist_data)
 print(f"Least squares circle: ({xc}, {yc}) radius = {r}")
 centered_points = xy_nist_data - np.array([xc, yc])
-# print(centered_points)
 polar_nist_data = cartesian_to_polar(centered_points)
 radius_nist_data = polar_nist_data[:, :1]
-np_fft = np.fft.rfft(radius_nist_data)
+#print(radius_nist_data)
+np_fft = np.fft.rfft(radius_nist_data.flatten())
 amplitudes = np.abs(np_fft) * (1 / n_samples)
+for i in range(0, 10):
+    print(amplitudes[i])
 frequencies = np.fft.fftfreq(n_samples) * n_samples * 1
 #for i in range(0, (int(polar_nist_data.size / 2)) - 1):
 #    plt.polar(polar_nist_data[i][1], polar_nist_data[i][0],'k.')
-plt.plot(frequencies[:len(frequencies) // 2], amplitudes[:len(np_fft) // 2])
+plt.plot(frequencies[:len(frequencies) // 2], amplitudes[:len(np_fft) - 1])
 plt.show()
 # print(amplitudes)
