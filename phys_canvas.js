@@ -98,6 +98,8 @@ addEventListener("DOMContentLoaded", (event) => {
   let yComputedCollision = null;
 
   function computeNextImpact() {
+    // See: https://stackoverflow.com/a/78980469/3634630 - thanks to kikon for this work!
+    
     // At the beginning when the ball is at the centroid of the polyline or after it has collided with a line segment of the polyline we want to know
     // which line it will hit next, where it will hit it and when it will it.
     // We can analyze this problem and come up with a solution by utilizing parametric equations:
@@ -337,7 +339,7 @@ addEventListener("DOMContentLoaded", (event) => {
   draw();
   requestAnimationFrame(animate);
   let collision = false;
-  
+
   function animate(currentTime) {
     if (previousTime === undefined) {
       setTimeout(computeNextImpact);
