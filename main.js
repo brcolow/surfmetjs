@@ -2,7 +2,7 @@ import { FFT } from './fft.js';
 import { transform } from './fft2.js';
 import { levenMarqFull } from './circlefit.js';
 import { simulatedAnnealing } from './simulated_annealing.js';
-import { findMIC } from './gradient_descent.js';
+import { gradientDescent } from './gradient_descent.js';
 import * as Plotly from 'plotly.js-dist-min';
 import Chart from 'chart.js/auto';
 import nistData from './nist/cir2d22.ds';
@@ -138,6 +138,18 @@ function analyzeHarmonics2(roundnessData) {
   return amplitudes;
 }
 
+function verifyMic(points, center, radius) {
+  for (let point of points) {
+    const distance = distanceSquared(point, center);
+    if (Math.abs(distance - radius * radius) < 0.0000000001) {
+      console.log("POINT " + point + " IS ON CIRCLE!");
+    }
+    if (distance < radius * radius) {
+      throw new Error("THIS IS NOT A MIC!");
+    }
+  }
+}
+
 function generateRandomRoundnessProfile(numPoints, minRadius, maxRadius) {
   const data = [];
   for (let i = 0; i < numPoints; i++) {
@@ -231,7 +243,6 @@ function bruteForceMic(points) {
         }
 
         if (isMicCandidate) {
-
           if (biggestMic == null || potentialMic.radiusSquared > biggestMic.radiusSquared) {
             biggestMic = potentialMic;
           }
@@ -289,7 +300,7 @@ readPointsFromURL(nistData)
       console.log(bruceForceMic);
       console.log(points);
 
-      console.log(findMIC(points, leastSquaresCircle));
+      console.log(gradientDescent(points, "MIC", leastSquaresCircle));
 
       // Subtract the LSC center from the points to center the point-cloud around the origin (0,0).
       // const centeredPoints = points.slice().map(point => [point[0] - leastSquaresCircle.a, point[1] - leastSquaresCircle.b]);
@@ -300,15 +311,7 @@ readPointsFromURL(nistData)
       console.log("maxRadius - minRadius: " + (maxRadius - minRadius));
 
       console.log("NIST MIC: center = [-600.5093622580, -428.7134351928], radius = 169.4623601410");
-      for (let point of points) {
-        const distance = distanceSquared(point,  [ -600.5093622669094, -428.713435109361 ]);
-        if (Math.abs(distance - 169.46236020895796 * 169.46236020895796) < 0.0000000001) {
-          console.log("POINT " + point + " IS ON CIRCLE!");
-        }
-        if (distance < 169.46236020895796 * 169.46236020895796) {
-          throw new Error("THIS IS NOT A MIC!");
-        }
-      }
+      verifyMic(points, [-600.5093622669094, -428.713435109361], 169.46236020895796);
 
       timeStart = performance.now();
       let biggestMic = null;

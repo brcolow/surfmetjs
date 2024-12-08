@@ -4,7 +4,6 @@
 	"description": "",
 	"main": "roundness.js",
 	"scripts": {
-		"serve": "npx http-server -c-1 -p 5000 -o --cors",
 		"phys": "npx http-server -c-1 -p 5000 -o physics.html --cors",
 		"dev": "vite",
 		"build": "vite build",

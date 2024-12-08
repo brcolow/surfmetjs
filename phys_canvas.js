@@ -53,7 +53,6 @@ addEventListener("DOMContentLoaded", (event) => {
       ctx.stroke();
     }
 
-
     // Draw the ball
     ctx.fillStyle = 'red';
     ctx.beginPath();
@@ -99,7 +98,7 @@ addEventListener("DOMContentLoaded", (event) => {
 
   function computeNextImpact() {
     // See: https://stackoverflow.com/a/78980469/3634630 - thanks to kikon for this work!
-    
+
     // At the beginning when the ball is at the centroid of the polyline or after it has collided with a line segment of the polyline we want to know
     // which line it will hit next, where it will hit it and when it will it.
     // We can analyze this problem and come up with a solution by utilizing parametric equations:
@@ -336,7 +335,6 @@ addEventListener("DOMContentLoaded", (event) => {
     console.log('next impactedLineIndex =', impactedLineIndex);
   }
 
-  draw();
   requestAnimationFrame(animate);
   let collision = false;
 
@@ -353,11 +351,13 @@ addEventListener("DOMContentLoaded", (event) => {
       ball.x += ball.vx * (timePerFrame / 1000 / speedFactor);
       ball.y += ball.vy * (timePerFrame / 1000 / speedFactor);
     }
+
     previousTime = currentTime;
     draw();
     if (collision) {
-      // next impact should only be computed after a collision
-      // setTimeout(computeNextImpact) // asynchronous
+      // TODO: Teleport the ball using the next impact (advancing time and ball radius).
+      // TODO: Track the time between collisions and when it approaches 0, that is when we should stop teleporting and
+      //  we should have found the MIC.
       computeNextImpact();
       if (ball.radius < 100 * Math.cos(Math.PI / (polygonVertices.length - 1)) - 1) {
         requestAnimationFrame(animate);

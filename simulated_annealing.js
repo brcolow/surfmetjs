@@ -1,6 +1,22 @@
+import { areConcentric, distanceSquared, findFarthestPoint, findFarthestPoint, getInitialSolution, getRandomBetween } from './utils.js';
+
+/**
+ * Implements simulated annealing to optimize the parameters of one or more circles
+ * to fit a given point set.
+ *
+ * @param {Array<Array<number>>} points - The set of 2D points to optimize the circle(s) for.
+ * @param {string} circleType - The type of circle optimization ("MIC", "MCC", or "MZC").
+ * @param {Object} leastSquaresCircle - The least-squares circle, with properties `a` and `b` for its center.
+ * @param {number} initialTemperature - The starting temperature for the annealing process.
+ * @param {Object} coolingType - The cooling schedule with properties `type` ("exponential", "linear", "logarithmic") and `rate`.
+ * @param {number} maxIterations - The maximum number of iterations for annealing.
+ * @param {number} maxNeighborIterations - The maximum attempts to generate a valid neighbor solution.
+ * @param {number} stepSize - The maximum step size for generating neighbor solutions.
+ * @returns {Object} - The best solution found during the process.
+ */
 function simulatedAnnealing(points, circleType, leastSquaresCircle, initialTemperature, coolingType, maxIterations, maxNeighborIterations, stepSize) {
   const convexHull = computeConvexHull(points);
-  const initialSolution = getInitialSolution(points, "MIC", leastSquaresCircle, convexHull);
+  const initialSolution = getInitialSolution(points, circleType, leastSquaresCircle, convexHull);
   let currentSolution = initialSolution;
   let bestSolution = initialSolution;
 
@@ -32,81 +48,14 @@ function simulatedAnnealing(points, circleType, leastSquaresCircle, initialTempe
   return bestSolution;
 }
 
-function findNearestPoint(points, point) {
-  let minDistance = Infinity;
-  let nearestPoint = null;
-
-  for (const p of points) {
-    const distance = distanceSquared(p, point);
-    if (distance < minDistance) {
-      minDistance = distance;
-      nearestPoint = p;
-    }
-  }
-  return { point: nearestPoint, distance: Math.sqrt(minDistance) };
-}
-
-function findFarthestPoint(points, point) {
-  let maxDistance = Infinity;
-  let farthestPoint = null;
-
-  for (const p of points) {
-    const distance = distanceSquared(p, point);
-    if (distance > maxDistance) {
-      maxDistance = distance;
-      farthestPoint = p;
-    }
-  }
-
-  return { point: farthestPoint, distance: Math.sqrt(maxDistance) };
-}
-
-function getInitialSolution(points, circleType, leastSquaresCircle, convexHull) {
-  if (circleType === "MIC") {
-    const nearestPointDistance = findNearestPoint(points, [leastSquaresCircle.a, leastSquaresCircle.b]).distance;
-    const maxRadius = Math.sqrt(Math.max(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
-    const minRadius = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
-
-    // We want to use the LSC center plus or minus a small amount to randomize the starting center. Go until we find one that is inside the convex hull of the point cloud.
-    let center = [leastSquaresCircle.a + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000), leastSquaresCircle.b + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000)];
-    while (!isPointInPolygon(center, convexHull)) {
-      center = [leastSquaresCircle.a + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000), leastSquaresCircle.b + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000)];
-    }
-
-    // We want to use the radius corresponding to the distance from the LSC center to the nearest point in the point cloud, plus or minus a small amount. Go until we find one such that no points are (strictly) inside the initial solution circle.
-    let radius = nearestPointDistance + getRandomBetween(-(maxRadius - minRadius) / 10000, 0);
-    let tries = 0;
-    while (!noPointsStrictlyInside(points, center, radius)) {
-      radius = nearestPointDistance + getRandomBetween(-(maxRadius - minRadius) / 10000, 0);
-      tries++;
-
-      if (tries > 1000) {
-        console.log("We could not find a suitable radius for the center even after 1000 tries!");
-        return { radius: nearestPointDistance - 0.00001, center: [leastSquaresCircle.a, leastSquaresCircle.b] };
-      }
-    }
-    
-    return { radius: radius, center: [center[0], center[1]] };
-  } else if (circleType === "MCC") {
-    // Find the point farthest from the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
-    return { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] };
-  } else if (circleType === "MZC") {
-    // Use the MIC initial guess as the inner circle and the MCC guess as the outer circle.
-    return { outerCircle: { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] }, innerCircle: { radius: findNearestPoint(points, [0, 0]).distance, center: [0, 0] } };
-  }
-}
-
-function noPointsStrictlyInside(points, center, radius) {
-  for (const point of points) {
-    const distance = distanceSquared(point, center);
-    if (distance < radius * radius) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
+/**
+ * Computes the temperature based on the current iteration and cooling schedule.
+ *
+ * @param {number} initialTemperature - The starting temperature.
+ * @param {number} i - The current iteration index.
+ * @param {Object} coolingType - The cooling schedule, with type and rate properties.
+ * @returns {number} - The temperature for the current iteration.
+ */
 function temperatureSchedule(initialTemperature, i, coolingType) {
   switch (coolingType.type) {
     case 'exponential':
@@ -124,6 +73,17 @@ function temperatureSchedule(initialTemperature, i, coolingType) {
   }
 }
 
+/**
+ * Generates a neighbor solution for the current solution using random perturbations.
+ *
+ * @param {Array<Array<number>>} points - The set of 2D points.
+ * @param {Array<Array<number>>} convexHull - The convex hull of the points.
+ * @param {string} circleType - The type of circle optimization ("MIC", "MCC", or "MZC").
+ * @param {Object} currentSolution - The current solution state.
+ * @param {number} maxNeighborIterations - The maximum attempts to generate a valid neighbor.
+ * @param {number} stepSize - The maximum step size for generating neighbor solutions.
+ * @returns {Object|null} - A valid neighbor solution or `null` if none could be found.
+ */
 function generateNeighbor(points, convexHull, circleType, currentSolution, maxNeighborIterations, stepSize) {
   let foundValidNeighbor = false;
   for (let i = 0; i < maxNeighborIterations; i++) {
@@ -280,6 +240,15 @@ function generateNeighbor(points, convexHull, circleType, currentSolution, maxNe
   }
 }
 
+/**
+ * Calculates the energy difference between two solutions.
+ *
+ * @param {Object} newSolution - The candidate solution.
+ * @param {Object} oldSolution - The current solution.
+ * @param {string} circleType - The type of circle optimization ("MIC", "MCC", or "MZC").
+ * @param {Array<Array<number>>} points - The set of 2D points.
+ * @returns {number} - The energy difference between the two solutions.
+ */
 function calculateEnergyDifference(newSolution, oldSolution, circleType, points) {
   switch (circleType) {
     case "MIC": {
@@ -305,6 +274,13 @@ function calculateEnergyDifference(newSolution, oldSolution, circleType, points)
   }
 }
 
+/**
+ * Evaluates the quality of a solution based on the optimization criteria.
+ *
+ * @param {Object} solution - The solution to evaluate.
+ * @param {string} circleType - The type of circle optimization ("MIC", "MCC", or "MZC").
+ * @returns {number} - The evaluation score of the solution.
+ */
 function evaluateSolution(solution, circleType) {
   switch (circleType) {
     case "MIC":
@@ -316,83 +292,12 @@ function evaluateSolution(solution, circleType) {
   }
 }
 
-function getRandomBetween(min, max) {
-  return Math.random() * (max - min) + min;
-}
-
-function distanceSquared(a, b) {
-  return (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]);
-}
-
-function areConcentric(circle1, circle2) {
-  const dx = circle1.center[0] - circle2.center[0];
-  const dy = circle1.center[1] - circle2.center[1];
-
-  // Check if the centers are the same.
-  return dx === 0 && dy === 0;
-}
-
 /**
- * Computes and returns the convex hull of the given points using the Graham scan.
- */
-function computeConvexHull(points) {
-  // Find the lowest point
-  let minY = Infinity;
-  let minIndex = 0;
-  for (let i = 0; i < points.length; i++) {
-    if (points[i][1] < minY || (points[i][1] === minY && points[i][0] < points[minIndex][0])) {
-      minY = points[i][1];
-      minIndex = i;
-    }
-  }
-
-  // Swap the lowest point to the first position
-  [points[0], points[minIndex]] = [points[minIndex], points[0]];
-
-  // Sort points by polar angle
-  // Note: We may be able to skip this because the circlular trace is always ordered this way...
-  points.sort((a, b) => {
-    const angleA = Math.atan2(a[1] - points[0][1], a[0] - points[0][0]);
-    const angleB = Math.atan2(b[1] - points[0][1], b[0] - points[0][0]);
-    return angleA - angleB;
-  });
-
-  const stack = [];
-  stack.push(points[0]);
-  stack.push(points[1]);
-
-  // Build the convex hull.
-  for (let i = 2; i < points.length; i++) {
-    let top = stack.pop();
-    while (orientation(stack[stack.length - 1], top, points[i]) <= 0) {
-      top = stack.pop();
-    }
-    stack.push(top);
-    stack.push(points[i]);
-  }
-
-  return stack;
-}
-
-/**
- * Takes an ordered triplet and returns 0, 1, or 2 depending on if the points are orientated colinearly, clockwise, or counter-clockwise respectively.
- */
-function orientation(p, q, r) {
-  // To find orientation of ordered triplet (p, q, r).
-  // The function returns following values
-  // 0 : Colinear points
-  // 1 : Clockwise points
-  // 2 : Counterclockwise points
-  const val = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1]);
-  if (val === 0) {
-    return 0;  // colinear
-  } else {
-    return (val > 0) ? 1 : 2; // clockwise or counterclock wise
-  }
-}
-
-/**
- * Returns true if the point is inside the given polygon; false otherwise. Uses the ray casting algorithm (i.e. the crossing number algorithm).
+ * Checks if a point is inside a polygon using the ray casting algorithm.
+ *
+ * @param {Array<number>} point - The point to check [x, y].
+ * @param {Array<Array<number>>} polygon - The vertices of the polygon in order.
+ * @returns {boolean} - `true` if the point is inside the polygon, `false` otherwise.
  */
 function isPointInPolygon(point, polygon) {
   let inside = false;
@@ -408,4 +313,4 @@ function isPointInPolygon(point, polygon) {
   return inside;
 }
 
-export { simulatedAnnealing, getInitialSolution, computeConvexHull };
+export { simulatedAnnealing };
