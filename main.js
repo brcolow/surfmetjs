@@ -7,6 +7,7 @@ import * as Plotly from 'plotly.js-dist-min';
 import Chart from 'chart.js/auto';
 import nistData from './nist/cir2d22.ds';
 import { getCurvePoints, getCurvePoints2 } from './cardinal_spline.js';
+import { distanceSquared } from './utils.js';
 
 // const roundnessData = generateRandomRoundnessProfile(numPoints, minRadius, maxRadius);
 
@@ -121,7 +122,6 @@ function analyzeHarmonics2(roundnessData) {
     const amplitude = Math.sqrt(real * real + imag * imag) * (1 / roundnessData.length); // This multiplies by the scaling factor so that the amplitudes stay in-tact.
     const phase = Math.atan2(imag, real);
 
-
     if (i === 0) {
       console.log("Unscaled amplitude: " + Math.sqrt(real * real + imag * imag));
       console.log("Average radius (DC component): " + amplitude);
@@ -140,8 +140,7 @@ function analyzeHarmonics2(roundnessData) {
 
 function verifyMic(points, center, radius) {
   for (let point of points) {
-    const distance = distanceSquared(point, center);
-    if (Math.abs(distance - radius * radius) < 0.0000000001) {
+    if (Math.abs(distanceSquared(point, center) - radius * radius) < 0.0000000001) {
       console.log("POINT " + point + " IS ON CIRCLE!");
     }
     if (distance < radius * radius) {
@@ -161,6 +160,21 @@ function generateRandomRoundnessProfile(numPoints, minRadius, maxRadius) {
   return data;
 }
 
+/**
+ * Reads point data from a text file hosted at a given URL. Each line in the file 
+ * is expected to contain coordinates separated by whitespace.
+ *
+ * @param {string} url - The URL of the text file containing point data.
+ * @param {number} [pointsPerLine=2] - The number of coordinates per line. Supported values:
+ *   - 2: For 2D points (x, y).
+ *   - 3: For 3D points (x, y, z).
+ *
+ * @returns {Promise<Array>} A promise that resolves to an array of points, where 
+ * each point is represented as an array of numbers ([x, y] for 2D or [x, y, z] for 3D).
+ * Returns `null` if an error occurs.
+ *
+ * @throws {Error} If an unsupported number of points per line is specified.
+ */
 async function readPointsFromURL(url, pointsPerLine = 2) {
   try {
     const response = await fetch(url);
@@ -180,6 +194,8 @@ async function readPointsFromURL(url, pointsPerLine = 2) {
         if (x && y && z) { // Check for empty lines
           points.push([parseFloat(x), parseFloat(y), parseFloat(z)]);
         }
+      } else {
+        throw new Error('Unsupported number of points per line: ' + pointsPerLine);
       }
     }
     return points;
@@ -190,16 +206,19 @@ async function readPointsFromURL(url, pointsPerLine = 2) {
 }
 
 /**
- * Calculates the (squared) distance between two points a and b.
+ * Calculates the circumcenter and squared radius of the circle passing through 
+ * three given points in 2D space.
  *
- * @param {*} a First point.
- * @param {*} b Second point.
- * @returns The squared distance between points a and b.
+ * @param {Array<number>} p1 - The first point as an array [x, y].
+ * @param {Array<number>} p2 - The second point as an array [x, y].
+ * @param {Array<number>} p3 - The third point as an array [x, y].
+ *
+ * @returns {Object} An object containing:
+ *   - `center` (Array<number>): The coordinates of the circle's center [cx, cy].
+ *   - `radiusSquared` (number): The square of the circle's radius.
+ *
+ * @throws {Error} If the three points are collinear, making the circle undefined.
  */
-function distanceSquared(a, b) {
-  return (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]);
-}
-
 function calculateCircle(p1, p2, p3) {
   // Reference: http://www.faqs.org/faqs/graphics/algorithms-faq/
   // Subject 1.04: How do I generate a circle through three points?
@@ -226,6 +245,17 @@ function calculateCircle(p1, p2, p3) {
   return { center: [cx, cy], radiusSquared: radiusSquared};
 }
 
+/**
+ * Finds the Maximum Inscribed Circle (MIC) that can be drawn through three points 
+ * from a given set of points such that no other points lie inside the circle.
+ *
+ * @param {Array<Array<number>>} points - An array of points where each point 
+ * is represented as an array [x, y].
+ *
+ * @returns {Object} An object containing:
+ *   - `center` (Array<number>): The coordinates of the MIC's center [cx, cy].
+ *   - `radius` (number): The radius of the MIC.
+ */
 function bruteForceMic(points) {
   let biggestMic = null;
 
@@ -234,9 +264,8 @@ function bruteForceMic(points) {
       for (let k = j + 1; k < points.length; k++) {
         let potentialMic = calculateCircle(points[i], points[j], points[k]);
         let isMicCandidate = true;
-        for (let point of points) {
-          const distance = distanceSquared(point, potentialMic.center);
-          if (distance < potentialMic.radiusSquared) {
+        for (const point of points) {
+          if (distanceSquared(point, potentialMic.center) < potentialMic.radiusSquared) {
             isMicCandidate = false;
             break;
           }
@@ -251,14 +280,94 @@ function bruteForceMic(points) {
     }
   }
 
-  return { center: [biggestMic.center[0], biggestMic.center[1]], radius: Math.sqrt(biggestMic.radiusSquared) };
+  return { center: biggestMic.center, radius: Math.sqrt(biggestMic.radiusSquared) };
 }
 
 /**
- * Uses the Box–Muller transform to return a random number between (min, max) where the probability of picking 
- * a number from that range follows the normal distribution. From https://stackoverflow.com/a/36481059.
+ * Computes the Maximum Inscribed Circle (MIC) of a given set of points.
+ * The MIC is the largest empty circle that can be drawn such that no points are inside it.
+ *
+ * @param {Array<Array<number>>} points - An array of points, where each point is represented as [x, y].
+ * @returns {Object} An object containing:
+ *   - `center` (Array<number>): The coordinates of the MIC's center [cx, cy].
+ *   - `radius` (number): The radius of the MIC.
+ */
+function bruteForceMicWithPruning(points) {
+  let biggestMic = null;
+
+  // Simple example of pruning - spatial indexing using bounding box clustering. Experiment with better spatial indexing/pruning.
+  const boundingBox = {
+    minX: Math.min(...points.map((p) => p[0])),
+    maxX: Math.max(...points.map((p) => p[0])),
+    minY: Math.min(...points.map((p) => p[1])),
+    maxY: Math.max(...points.map((p) => p[1])),
+  };
+
+  const threshold = Math.min(boundingBox.maxX - boundingBox.minX, boundingBox.maxY - boundingBox.minY) * 0.2;
+  const candidatePoints = points.filter(
+    p =>
+      Math.abs(p[0] - boundingBox.minX) < threshold ||
+      Math.abs(p[0] - boundingBox.maxX) < threshold ||
+      Math.abs(p[1] - boundingBox.minY) < threshold ||
+      Math.abs(p[1] - boundingBox.maxY) < threshold
+  );
+
+  // Brute-force search for the MIC
+  for (let i = 0; i < candidatePoints.length - 2; i++) {
+    for (let j = i + 1; j < candidatePoints.length - 1; j++) {
+      for (let k = j + 1; k < candidatePoints.length; k++) {
+        const circle = calculateCircle(candidatePoints[i], candidatePoints[j], candidatePoints[k]);
+
+        const { center, radiusSquared } = circle;
+        let isMicCandidate = true;
+
+        for (const point of points) {
+          if (distanceSquared(point, center) < radiusSquared) {
+            isMicCandidate = false;
+            break;
+          }
+        }
+
+        if (isMicCandidate) {
+          if (!biggestMic == null || radiusSquared > biggestMic.radiusSquared) {
+            biggestMic = circle;
+          }
+        }
+      }
+    }
+  }
+
+  if (!biggestMic) {
+    throw new Error("No valid MIC found. Ensure points are not all collinear.");
+  }
+
+  return {
+    center: biggestMic.center,
+    radius: Math.sqrt(biggestMic.radiusSquared),
+  };
+}
+
+/**
+ * Generates a random number following an approximate normal (Gaussian) distribution,
+ * constrained to a specified range [min, max].
+ *
+ * The function uses the Box-Muller transform to produce a normally distributed random value
+ * and rescales it to fit within the given range. If the value falls outside the range,
+ * the function recursively samples again.
+ *
+ * @param {number} min - The lower bound of the range.
+ * @param {number} max - The upper bound of the range.
+ *
+ * @returns {number} A random number following a normal distribution within the range [min, max].
+ *
+ * @throws {Error} If `min` is greater than or equal to `max`.
  * 
- * See: https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
+ * @see https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
+ * @see https://stackoverflow.com/a/36481059
+ *
+ * @example
+ * const num = randomNormalDistribution(0, 1);
+ * console.log(num); // e.g., 0.578 (random, normally distributed)
  */
 function randomNormalDistribution(min, max) {
   let u, v;

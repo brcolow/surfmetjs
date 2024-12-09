@@ -100,7 +100,7 @@ These objective functions, along with the associated constraints, are used withi
 ### Filters
 
     Gaussian
-    Spline Based Gaussian (with adjustable tension
+    Spline Based Gaussian (with adjustable tension)
     Valley Suppression (ISO 13565-1 – 1996)
     Robust Spline-Based Gaussian (based on robust regression)
     Morphological Closing Filter (circular element applied to waviness profile)
@@ -116,3 +116,35 @@ These objective functions, along with the associated constraints, are used withi
     Spline Filter (for bandpass waviness with a user specified cutoff)
     Asphere (user defined coefficients with optional radius optimization)
     Free Form (user defined coordinates with optional pre-filtering)
+
+### Surface Measurement Data Types
+
+    SigmaSurf(*.sig)
+    Jenoptik/Hommelwerke (*.pro; *.pip; *.asc; *.smd; *.hwp; *.hfm) 
+    Mitutoyo (*.csv; *.dat; *.mes) 
+    Form Talysurf (*.prf; *.fts; *.ruf, *.mod) 
+    Talysurf 10 (*.ten) 
+    Talysurf 6 (*.six) 
+    Talyrond (*.str) 
+    Surtronic 3+ (*.stp) 
+    Renishaw (*.xls; *.zpx; *.rsf; *.out; *.txt) 
+    Metrex (*.prf) 
+    Mahr (*.pcd; *.prf; *.txt; *.pra; *.s2p) 
+    TSK/Zeiss (*.rst; *.txt; *.tx1; *.tx2; *.nc; *.ynz) 
+    Federal (*.dir) 
+    Somicronic (*.pro; *.smd) 
+    2Pros (*.hdr) 
+    BTI (*.csv) 
+    BM ASCII (*.pr) 
+    FRT X-axis Text (*.txt) 
+    Precision Devices (*.pdi; *.dat; *.nds) 
+    Standard Data (*.sdf) 
+    Hexagon Coordinate (*.yz) 
+    CellView Text (*.txt) 
+    Jenoptik Evovis XML (*.xml) 
+    Zygo Profile (*.txt) 
+    CMM Data (*.out; *.txt) 
+    OmniSurf Settings (*.ini) 
+    2-Column Radius (*.sip) 
+    Insitutec (*.ist) 
+    Multi-column SIG (*.sigh)
