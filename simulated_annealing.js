@@ -1,50 +1,103 @@
-import { areConcentric, distanceSquared, findFarthestPoint, findFarthestPoint, getInitialSolution, getRandomBetween } from './utils.js';
+import { areConcentric, computeConvexHull, distanceSquared, findFarthestPoint, findNearestPoint, getInitialSolution, getRandomBetween, isPointInPolygon } from './utils.js';
+import { gradientDescent } from './gradient_descent.js';
 
 /**
- * Implements simulated annealing to optimize the parameters of one or more circles
- * to fit a given point set.
+ * Simulated annealing optimizer with equilibrium steps and (optional) final gradient descent refinement.
  *
- * @param {Array<Array<number>>} points - The set of 2D points to optimize the circle(s) for.
- * @param {string} circleType - The type of circle optimization ("MIC", "MCC", or "MZC").
- * @param {Object} leastSquaresCircle - The least-squares circle, with properties `a` and `b` for its center.
- * @param {number} initialTemperature - The starting temperature for the annealing process.
- * @param {Object} coolingType - The cooling schedule with properties `type` ("exponential", "linear", "logarithmic") and `rate`.
- * @param {number} maxIterations - The maximum number of iterations for annealing.
- * @param {number} maxNeighborIterations - The maximum attempts to generate a valid neighbor solution.
- * @param {number} stepSize - The maximum step size for generating neighbor solutions.
- * @returns {Object} - The best solution found during the process.
+ * @param {Array<Array<number>>} points - The input point set.
+ * @param {string} circleType - "MIC", "MCC", or "MZC".
+ * @param {Object} leastSquaresCircle - Initial estimate.
+ * @param {number} initialTemperature - Starting temperature (default: 1000).
+ * @param {Object} coolingType - Cooling schedule object (default: { type: 'logarithmic', rate: 0.1 }).
+ * @param {number} maxIterations - Number of temperature drops (default: 1000).
+ * @param {number} equilibriumSteps - Number of neighbors tried per temperature (default: 20).
+ * @param {number} maxNeighborIterations - Max tries to generate valid neighbor (default: 5000).
+ * @param {number} stepSize - Perturbation scale.
+ * @param {boolean} refineWithGradientDescent - Use gradient descent to refine the solution once a low temperature is reached (default: false).
+ * @returns {Object} - Best solution found.
  */
-function simulatedAnnealing(points, circleType, leastSquaresCircle, initialTemperature, coolingType, maxIterations, maxNeighborIterations, stepSize) {
+function simulatedAnnealing(points, circleType, leastSquaresCircle, initialTemperature = 1000, coolingType = { type: 'logarithmic', rate: 0.1 }, maxIterations = 1000, equilibriumSteps = 20, maxNeighborIterations = 5000, stepSize, refineWithGradientDescent = false) {
   const convexHull = computeConvexHull(points);
   const initialSolution = getInitialSolution(points, circleType, leastSquaresCircle, convexHull);
+
   let currentSolution = initialSolution;
   let bestSolution = initialSolution;
+  let currentEnergy = calculateEnergy(currentSolution, circleType, points, convexHull);
+  let bestEnergy = currentEnergy;
+
+  const minTemperature = 1e-5;
+  let didRefine = false;
 
   for (let i = 0; i < maxIterations; i++) {
     const temperature = temperatureSchedule(initialTemperature, i, coolingType);
+    const adaptiveStepSize = stepSize * temperature;
 
-    // We could repeat the following until equilibrium is approached sufficiently closely (for this temperature value - would need to define that carefully.)
-    const neighbor = generateNeighbor(points, convexHull, circleType, currentSolution, maxNeighborIterations, stepSize);
-    if (neighbor === null) {
-      console.log("Could not find next neighbor at iteration: " + i);
-      break;
+    for (let j = 0; j < equilibriumSteps; j++) {
+      const neighbor = generateNeighbor(points, convexHull, circleType, currentSolution, maxNeighborIterations, adaptiveStepSize);
+      if (!neighbor) {
+        continue;
+      }
+
+      const newEnergy = calculateEnergy(neighbor, circleType, points, convexHull);
+      const deltaEnergy = newEnergy - currentEnergy;
+
+      const accept = deltaEnergy < 0 || Math.exp(-deltaEnergy / Math.max(temperature, minTemperature)) > Math.random();
+
+      if (accept) {
+        currentSolution = neighbor;
+        currentEnergy = newEnergy;
+
+        if (newEnergy < bestEnergy) {
+          bestSolution = neighbor;
+          bestEnergy = newEnergy;
+        }
+      }
     }
-    const deltaEnergy = calculateEnergyDifference(neighbor, currentSolution, circleType, points);
 
-    // Metropolis criterion
-    if (deltaEnergy < 0 || Math.exp(-deltaEnergy / temperature) > Math.random()) {
-      currentSolution = neighbor;
+    // Gradient Descent Refinement at low temp
+    /*
+    if (refineWithGradientDescent) {
+      if (i > 0.9 * maxIterations && !didRefine) {
+        console.log("Switching to gradient descent refinement...");
+
+        const refinedParams = gradientDescent(points, circleType, {
+          center: bestSolution.center || bestSolution.outerCircle?.center,
+          radius: bestSolution.radius || (bestSolution.outerCircle?.radius ?? 0)
+        });
+
+        if (circleType === "MIC" || circleType === "MCC") {
+          bestSolution = {
+            center: [refinedParams[0], refinedParams[1]],
+            radius: refinedParams[2]
+          };
+        } else if (circleType === "MZC") {
+          const center = [refinedParams[0], refinedParams[1]];
+          const dists = points.map(p => Math.sqrt(distanceSquared(p, center)));
+          const rMin = Math.min(...dists);
+          const rMax = Math.max(...dists);
+          
+          bestSolution = {
+            innerCircle: {
+              center,
+              radius: rMin
+            },
+            outerCircle: {
+              center,
+              radius: rMax
+            }
+          };
+        }
+
+        didRefine = true;
+      }
     }
-
-    if (evaluateSolution(currentSolution, circleType) > evaluateSolution(bestSolution, circleType)) {
-      bestSolution = currentSolution;
-    }
-
+    */
     if (i + 1 === maxIterations) {
-      console.log("Got to max iterations: " + i);
+      console.log("Reached max iterations: " + i);
     }
   }
 
+  // console.log("Best solution found at iteration = " + bestIteration + ", energy = " + bestEnergy + ", temperature = " + bestTemperature);
   return bestSolution;
 }
 
@@ -84,7 +137,7 @@ function temperatureSchedule(initialTemperature, i, coolingType) {
  * @param {number} stepSize - The maximum step size for generating neighbor solutions.
  * @returns {Object|null} - A valid neighbor solution or `null` if none could be found.
  */
-function generateNeighbor(points, convexHull, circleType, currentSolution, maxNeighborIterations, stepSize) {
+function generateNeighborOld(points, convexHull, circleType, currentSolution, maxNeighborIterations, stepSize) {
   let foundValidNeighbor = false;
   for (let i = 0; i < maxNeighborIterations; i++) {
     let neighborCandidate;
@@ -241,6 +294,150 @@ function generateNeighbor(points, convexHull, circleType, currentSolution, maxNe
 }
 
 /**
+ * Generates a valid neighbor solution for MIC, MCC, or MZC by perturbing the current solution.
+ *
+ * @param {Array<Array<number>>} points - 2D point cloud.
+ * @param {Array<Array<number>>} convexHull - Convex hull for center constraint.
+ * @param {string} circleType - "MIC", "MCC", or "MZC".
+ * @param {Object} currentSolution - The current solution object.
+ * @param {number} maxNeighborIterations - Max attempts to find a valid neighbor.
+ * @param {number} stepSize - Perturbation scale.
+ * @returns {Object|null} - Valid neighbor or null if none found.
+ */
+function generateNeighbor(points, convexHull, circleType, currentSolution, maxNeighborIterations, stepSize) {
+  for (let attempt = 0; attempt < maxNeighborIterations; attempt++) {
+    if (circleType === "MZC") {
+      // Clone concentric center and radii
+      let newCenter = [...currentSolution.outerCircle.center];
+      let innerRadius = currentSolution.innerCircle.radius;
+      let outerRadius = currentSolution.outerCircle.radius;
+
+      // Perturb center
+      if (Math.random() < 0.6) {
+        newCenter = [
+          newCenter[0] + getRandomBetween(-stepSize, stepSize),
+          newCenter[1] + getRandomBetween(-stepSize, stepSize)
+        ];
+        if (!isPointInPolygon(newCenter, convexHull)) continue;
+      }
+
+      // Perturb inner and/or outer radii independently
+      if (Math.random() < 0.6) {
+        innerRadius += getRandomBetween(-stepSize, stepSize);
+        innerRadius = Math.max(0, innerRadius);
+      }
+      if (Math.random() < 0.6) {
+        outerRadius += getRandomBetween(-stepSize, stepSize);
+        outerRadius = Math.max(innerRadius + 1e-6, outerRadius); // Ensure outer > inner
+      }
+
+      const neighbor = {
+        innerCircle: { center: newCenter, radius: innerRadius },
+        outerCircle: { center: newCenter, radius: outerRadius }
+      };
+
+      const valid = points.every(p => {
+        const d = Math.sqrt(distanceSquared(p, newCenter));
+        return d >= innerRadius && d <= outerRadius;
+      });
+
+      if (valid) return neighbor;
+    } else {
+      // MIC or MCC
+      const changeCenter = Math.random() < 0.6;
+      const changeRadius = Math.random() < 0.6;
+
+      let newCenter = [...currentSolution.center];
+      let newRadius = currentSolution.radius;
+
+      if (changeCenter) {
+        const dx = getRandomBetween(-stepSize, stepSize);
+        const dy = getRandomBetween(-stepSize, stepSize);
+        newCenter = [newCenter[0] + dx, newCenter[1] + dy];
+        if (!isPointInPolygon(newCenter, convexHull)) continue;
+      }
+
+      if (changeRadius) {
+        const dr = getRandomBetween(0, stepSize);
+        if (circleType === "MIC") {
+          newRadius += dr;
+        } else if (circleType === "MCC") {
+          newRadius = Math.max(0, newRadius - dr);
+        }
+      }
+
+      const neighbor = {
+        center: newCenter,
+        radius: newRadius
+      };
+
+      const valid = points.every(p => {
+        const d2 = distanceSquared(p, newCenter);
+        if (circleType === "MIC") {
+          return d2 >= newRadius * newRadius;
+        } else {
+          // MCC
+          return d2 <= newRadius * newRadius;
+        }
+      });
+
+      if (valid) {
+        return neighbor;
+      }
+    }
+  }
+
+  return null;
+}
+
+
+/**
+ * Calculates the energy (cost) of a given circle solution based on geometric criteria.
+ * Lower energy means a better solution.
+ *
+ * For MIC: maximize the minimum distance to any point (i.e., maximize inscribed radius).
+ * For MCC: minimize the maximum distance to any point (i.e., minimize circumscribed radius).
+ * For MZC: minimize the radial difference between the outer and inner concentric circles,
+ *          ensuring all points lie within the band.
+ *
+ * @param {Object} solution - The circle solution to evaluate.
+ * @param {string} circleType - The type of circle ("MIC", "MCC", or "MZC").
+ * @param {Array<Array<number>>} points - The set of 2D points.
+ * @param {Array<Array<number>>} convexHull - The convex hull of the point set (for MZC validation).
+ * @returns {number} - The energy score; lower values are better.
+ */
+function calculateEnergy(solution, circleType, points, convexHull) {
+  switch (circleType) {
+    case "MIC": {
+      const minDist = Math.min(...points.map(p => Math.sqrt(distanceSquared(p, solution.center))));
+      return -minDist; // Maximize min distance
+    }
+
+    case "MCC": {
+      const maxDist = Math.max(...points.map(p => Math.sqrt(distanceSquared(p, solution.center))));
+      return maxDist; // Minimize max distance
+    }
+
+    case "MZC": {
+      const inner = solution.innerCircle;
+      const outer = solution.outerCircle;
+
+      // Penalty if points are outside the band or not concentric
+      const outerViolations = points.some(p => Math.sqrt(distanceSquared(p, outer.center)) > outer.radius);
+      const innerViolations = points.some(p => Math.sqrt(distanceSquared(p, inner.center)) < inner.radius);
+      const notConcentric = !areConcentric(inner, outer);
+
+      if (outerViolations || innerViolations || notConcentric) {
+        return Infinity;
+      }
+
+      const bandWidth = outer.radius - inner.radius;
+      return bandWidth; // Minimize width of the band
+    }
+  }
+}
+
+/**
  * Calculates the energy difference between two solutions.
  *
  * @param {Object} newSolution - The candidate solution.
@@ -290,27 +487,6 @@ function evaluateSolution(solution, circleType) {
     case "MZC":
       return -(solution.outerCircle.radius - solution.innerCircle.radius);
   }
-}
-
-/**
- * Checks if a point is inside a polygon using the ray casting algorithm.
- *
- * @param {Array<number>} point - The point to check [x, y].
- * @param {Array<Array<number>>} polygon - The vertices of the polygon in order.
- * @returns {boolean} - `true` if the point is inside the polygon, `false` otherwise.
- */
-function isPointInPolygon(point, polygon) {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i][0], yi = polygon[i][1];
-    const xj = polygon[j][0], yj = polygon[j][1];
-    const intersect = ((yi > point[1]) != (yj > point[1]))
-      && (point[0] < (xj - xi) * (point[1] - yi) / (yj - yi) + xi);
-    if (intersect) {
-      inside = !inside;
-    }
-  }
-  return inside;
 }
 
 export { simulatedAnnealing };

@@ -144,7 +144,7 @@ function gradient(params, points, circleType, penalty = 100) {
   return [dx, dy, dr];
 }
 
-function gradient(params, points, penalty = 100) {
+function gradientOld(params, points, penalty = 100) {
   const [x, y, r] = params;
   let dx = 0, dy = 0, dr = -1;
   for (const point of points) {

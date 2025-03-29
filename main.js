@@ -143,7 +143,7 @@ function verifyMic(points, center, radius) {
     if (Math.abs(distanceSquared(point, center) - radius * radius) < 0.0000000001) {
       console.log("POINT " + point + " IS ON CIRCLE!");
     }
-    if (distance < radius * radius) {
+    if (distanceSquared(point, center) < radius * radius) {
       throw new Error("THIS IS NOT A MIC!");
     }
   }
@@ -409,6 +409,7 @@ readPointsFromURL(nistData)
       console.log(bruceForceMic);
       console.log(points);
 
+      console.log("Gradient descent best solution:");
       console.log(gradientDescent(points, "MIC", leastSquaresCircle));
 
       // Subtract the LSC center from the points to center the point-cloud around the origin (0,0).
@@ -424,8 +425,8 @@ readPointsFromURL(nistData)
 
       timeStart = performance.now();
       let biggestMic = null;
-      for (let i = 0; i < 100; i++) {
-        const mic = simulatedAnnealing(points.slice(), "MIC", leastSquaresCircle, 1000, { type: 'logarithmic', rate: 0.1 }, 1000, 5000, 0.001);
+      for (let i = 0; i < 10; i++) {
+        const mic = simulatedAnnealing(points.slice(), "MIC", leastSquaresCircle, 1000, { type: 'logarithmic', rate: 0.1 }, 10000, 20, 5000, (maxRadius - minRadius) / 100, true);
         if (biggestMic == null || mic.radius > biggestMic.radius) {
           biggestMic = mic;
         }
@@ -434,6 +435,9 @@ readPointsFromURL(nistData)
       console.log("SA time: " + (performance.now() - timeStart) + " milliseconds");
       console.log("Simulated Annealing MIC:");
       console.log({ center: [biggestMic.center[0], biggestMic.center[1]], radius: biggestMic.radius});
+      
+      verifyMic(points, [biggestMic.center[0], biggestMic.center[1]], biggestMic.radius);
+
       if (true) {
         return;
       }

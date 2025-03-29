@@ -172,7 +172,7 @@ function orientation(p, q, r) {
  * @param {Array<number>} point - The reference point [x, y].
  * @returns {Object} - The nearest point and its distance: `{ point, distance }`.
  */
-function findNearestPoint(points, point) {
+export function findNearestPoint(points, point) {
   let minDistance = Infinity;
   let nearestPoint = null;
 
@@ -193,7 +193,7 @@ function findNearestPoint(points, point) {
  * @param {Array<number>} point - The reference point [x, y].
  * @returns {Object} - The farthest point and its distance: `{ point, distance }`.
  */
-function findFarthestPoint(points, point) {
+export function findFarthestPoint(points, point) {
   let maxDistance = Infinity;
   let farthestPoint = null;
 
@@ -206,4 +206,25 @@ function findFarthestPoint(points, point) {
   }
 
   return { point: farthestPoint, distance: Math.sqrt(maxDistance) };
+}
+
+/**
+ * Checks if a point is inside a polygon using the ray casting algorithm.
+ *
+ * @param {Array<number>} point - The point to check [x, y].
+ * @param {Array<Array<number>>} polygon - The vertices of the polygon in order.
+ * @returns {boolean} - `true` if the point is inside the polygon, `false` otherwise.
+ */
+export function isPointInPolygon(point, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i][0], yi = polygon[i][1];
+    const xj = polygon[j][0], yj = polygon[j][1];
+    const intersect = ((yi > point[1]) != (yj > point[1]))
+      && (point[0] < (xj - xi) * (point[1] - yi) / (yj - yi) + xi);
+    if (intersect) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
