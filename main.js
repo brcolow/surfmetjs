@@ -429,15 +429,22 @@ readPointsFromURL(nistData)
         const mic = simulatedAnnealing(points.slice(), "MIC", leastSquaresCircle, 1000, { type: 'logarithmic', rate: 0.1 }, 10000, 20, 5000, (maxRadius - minRadius) / 100, true);
         if (biggestMic == null || mic.radius > biggestMic.radius) {
           biggestMic = mic;
+          console.log("Gradient descent of SA solution: ");
+          let enhancedSolution = gradientDescent(points, "MIC", { a: biggestMic.center[0], b: biggestMic.center[1], r: biggestMic.radius});
+          if (enhancedSolution[2] > biggestMic.radius) {
+            biggestMic = enhancedSolution;
+          }
         }
       }
   
       console.log("SA time: " + (performance.now() - timeStart) + " milliseconds");
       console.log("Simulated Annealing MIC:");
       console.log({ center: [biggestMic.center[0], biggestMic.center[1]], radius: biggestMic.radius});
-      
+
       verifyMic(points, [biggestMic.center[0], biggestMic.center[1]], biggestMic.radius);
 
+      console.log("Gradient descent of SA solution: ");
+      console.log(gradientDescent(points, "MIC", { a: biggestMic.center[0], b: biggestMic.center[1], r: biggestMic.radius}));
       if (true) {
         return;
       }

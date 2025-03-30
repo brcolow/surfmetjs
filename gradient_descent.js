@@ -1,6 +1,40 @@
 import { computeConvexHull, distanceSquared, getInitialSolution } from './utils.js';
 
 /**
+ * Performs gradient descent to optimize the circle parameters.
+ * 
+ * @param {Array<Array<number>>} points - The list of points to evaluate.
+ * @param {string} circleType - The type of circle ("MIC", "MCC", or "MZC").
+ * @param {Object} initialEstimate - Initial estimate of the circle parameters.
+ * @param {number} [learningRate=1e-11] - The step size for gradient updates.
+ * @param {number} [maxIterations=1000] - The maximum number of iterations.
+ * @returns {Object} The best solution found as an Object: {center: [x, y], radius: r}
+ */
+function gradientDescent(points, circleType, initialEstimate, learningRate = 0.00000000001, maxIterations = 1000) {
+  const convexHull = computeConvexHull(points);
+  const initialSolution = getInitialSolution(points, circleType, initialEstimate, convexHull);
+
+  let params = [ initialSolution.center[0], initialSolution.center[1], initialSolution.radius ];
+  let previousObjective = Infinity;
+  let previousParams = params;
+  for (let i = 0; i < maxIterations; i++) {
+    const grad = gradient(params, points, circleType);
+    params = params.map((p, i) => p - learningRate * grad[i]);
+    const currentObjective = getObjectiveFunction(circleType)(params, points);
+   // console.log(`Iteration ${i}: Objective value: ${currentObjective}`);
+    if (currentObjective > previousObjective) {
+      console.log("Objective function increased, stopping at iteration: " + i);
+      params = previousParams;
+      break;
+    }
+    previousParams = params;
+    previousObjective = currentObjective;
+ }
+
+  return { center: [params[0], params[1]], radius: params[2] };
+}
+
+/**
  * Objective function for Minimum Inscribed Circle (MIC).
  * Attempts to minimize the radius while penalizing circles that don't enclose all points.
  * 
@@ -144,22 +178,6 @@ function gradient(params, points, circleType, penalty = 100) {
   return [dx, dy, dr];
 }
 
-function gradientOld(params, points, penalty = 100) {
-  const [x, y, r] = params;
-  let dx = 0, dy = 0, dr = -1;
-  for (const point of points) {
-    const [px, py] = point;
-    const dist = distanceSquared(point, [x, y]);
-    if (dist < r * r) {
-      const factor = penalty * (r - dist) / dist;
-      dx += (x - px) * factor;
-      dy += (y - py) * factor;
-      dr += factor;
-    }
-  }
-  return [dx, dy, dr];
-}
-
 /**
  * Selects the appropriate objective function based on the circle type.
  * 
@@ -179,39 +197,5 @@ const getObjectiveFunction = (circleType) => {
           throw new Error("Invalid circleType");
   }
 };
-
-/**
- * Performs gradient descent to optimize the circle parameters.
- * 
- * @param {Array<Array<number>>} points - The list of points to evaluate.
- * @param {string} circleType - The type of circle ("MIC", "MCC", or "MZC").
- * @param {Object} leastSquaresCircle - Initial estimate of the circle parameters.
- * @param {number} [learningRate=1e-11] - The step size for gradient updates.
- * @param {number} [maxIterations=1000] - The maximum number of iterations.
- * @returns {Array<number>} The optimized circle parameters [x, y, r].
- */
-function gradientDescent(points, circleType, leastSquaresCircle, learningRate = 0.00000000001, maxIterations = 1000) {
-  const convexHull = computeConvexHull(points);
-  const initialSolution = getInitialSolution(points, circleType, leastSquaresCircle, convexHull);
-
-  let params = [ initialSolution.center[0], initialSolution.center[1], initialSolution.radius ];
-  let previousObjective = Infinity;
-  let previousParams = params;
-  for (let i = 0; i < maxIterations; i++) {
-    const grad = gradient(params, points, circleType);
-    params = params.map((p, i) => p - learningRate * grad[i]);
-    const currentObjective = getObjectiveFunction(circleType)(params, points);
-   // console.log(`Iteration ${i}: Objective value: ${currentObjective}`);
-    if (currentObjective > previousObjective) {
-      console.log("Objective function increased, stopping at iteration: " + i);
-      params = previousParams;
-      break;
-    }
-    previousParams = params;
-    previousObjective = currentObjective;
- }
-
-  return params;
-}
 
 export { gradientDescent }
