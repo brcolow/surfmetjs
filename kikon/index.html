@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+  <style></style>
+  <body>
+    <button disabled id="start_mic1" style="font-size: larger; padding: 3px">
+      Compute Pixel Mic
+    </button>
+    <button disabled id="start_ball" style="font-size: larger; padding: 3px">
+      Start Ball Simulation</button
+    ><br />
+    <div
+      id="step1"
+      style="border: 1px solid black; padding: 3px; margin-right: 10px"
+    >
+      <button id="generate">Generate Random</button>
+      <small>Repeat, if inconvenient or ill-defined</small>
+      <br />
+      <canvas id="myCanvas"></canvas>
+    </div>
+    <br />
+
+    <script>
+      let polygonVertices;
+      const size0 = 600,
+        ROut = size0 / 2 - 20;
+      let butStartBall;
+      addEventListener('DOMContentLoaded', (event) => {
+        const canvas = document.getElementById('myCanvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = size0;
+        canvas.height = size0;
+
+        const divStep1 = document.querySelector('#step1');
+        const butGenerate = document.querySelector('#generate');
+        const butStartMic1 = document.querySelector('#start_mic1');
+        butStartBall = document.querySelector('#start_ball');
+        butGenerate.onclick = function () {
+          generateRandomPoly();
+          butStartMic1.disabled = false;
+          draw(ctx);
+        };
+
+        butStartMic1.onclick = function () {
+          const iframe1 = document.createElement('iframe');
+          iframe1.id = 'iframe1';
+          iframe1.src = 'index_mic1.html';
+          iframe1.width = '' + (butStartMic1.parentElement.offsetWidth - 20);
+          iframe1.height = '700';
+          divStep1.parentElement.insertBefore(
+            iframe1,
+            divStep1.nextElementSibling
+          );
+          divStep1.parentElement.removeChild(divStep1);
+          butStartMic1.disabled = true;
+        };
+
+        butStartBall.onclick = function () {
+          const iframe1 = document.querySelector('#iframe1');
+          iframe1.height = '300';
+          const iframe2 = document.createElement('iframe');
+          iframe2.id = 'iframe2';
+          iframe2.src = 'index_fast_ball.html';
+          iframe2.width = '' + (butStartBall.parentElement.offsetWidth - 20);
+          iframe2.height = '700';
+          iframe1.parentElement.insertBefore(
+            iframe2,
+            iframe1.nextElementSibling
+          );
+          butStartBall.disabled = true;
+        };
+      });
+
+      function regularPolygonVertices(sides, radius, center = { x: 0, y: 0 }) {
+        const vertices = [];
+        const angle = 360 / sides;
+
+        for (let i = 0; i < sides; i++) {
+          const x = radius * Math.cos((Math.PI * i * angle) / 180) + center.x;
+          const y = radius * Math.sin((Math.PI * i * angle) / 180) + center.y;
+          vertices.push({ x: x, y: y });
+        }
+
+        return vertices;
+      }
+
+      function generateRandomPoly() {
+        let nInitialVertices = Math.floor(8 * Math.random()) + 7;
+        polygonVertices = regularPolygonVertices(nInitialVertices, ROut, {
+          x: size0 / 2,
+          y: size0 / 2,
+        });
+
+        const nInnerVertices = Math.floor(
+            Math.min(Math.random() * 5, nInitialVertices / 3)
+          ),
+          deltaAdd = nInitialVertices / (nInnerVertices + 1);
+        const insert = [];
+        try {
+          for (let inner = 0; inner < nInnerVertices; inner++) {
+            const insertAt = Math.round(deltaAdd * inner + 1);
+            const xNew =
+                polygonVertices[insertAt].x / (2.5 + Math.random()) +
+                polygonVertices[insertAt + 1].x / (2.5 + Math.random()) +
+                ROut / (2.5 + Math.random()),
+              yNew =
+                polygonVertices[insertAt].y / (2.5 + Math.random()) +
+                polygonVertices[insertAt + 1].y / (2.5 + Math.random()) +
+                ROut / (2.5 + Math.random());
+            insert.unshift([insertAt, xNew, yNew]);
+          }
+          for (const [insertAt, xNew, yNew] of insert) {
+            polygonVertices.splice(insertAt, 0, { x: xNew, y: yNew });
+          }
+        } catch (e) {}
+      }
+
+      function draw(ctx) {
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        ctx.beginPath();
+        ctx.moveTo(polygonVertices[0].x, polygonVertices[0].y);
+        for (let i = 0; i < polygonVertices.length; i++) {
+          ctx.lineTo(polygonVertices[i].x, polygonVertices[i].y);
+        }
+        ctx.lineTo(polygonVertices[0].x, polygonVertices[0].y);
+        ctx.strokeStyle = 'black';
+        ctx.stroke();
+      }
+
+      function notifyFrameLoaded(id, winFrame) {
+        if (id === 'mic1' || id === 'fast_ball') {
+          winFrame.postMessage({ polygonVertices });
+        }
+      }
+
+      function notifyComputationOver({ statusPixel, statusSubpixel }) {
+        butStartBall.disabled = false;
+      }
+    </script>
+  </body>
+</html>

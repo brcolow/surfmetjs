@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html>
+  <style></style>
+  <body>
+    <div>
+      <span style="text-decoration: underline">Maximum inscribed circle.</span>
+
+      <br /><br />
+
+      <div
+        style="
+          display: inline-block;
+          vertical-align: middle;
+          position: relative;
+        "
+      >
+        <canvas id="myCanvas"></canvas>
+      </div>
+      <div
+        style="
+          display: inline-block;
+          border: 2px solid darkblue;
+          vertical-align: top;
+        "
+      >
+        <div id="status" style="margin: 10px"></div>
+        <button id="run_sub_pixel" disabled>Run sub-pixel</button><br />
+        <div id="status_subpixel" style="margin: 10px"></div>
+      </div>
+
+      <div style="display: inline-block; font-size: smaller">
+        <div
+          style="
+            display: inline-block;
+            width: 30px;
+            border: 1px solid black;
+            background-color: #ff0;
+          "
+        >
+          &nbsp;
+        </div>
+        - low distance to the polygon<br />
+        <div
+          style="
+            display: inline-block;
+            width: 30px;
+            border: 1px solid black;
+            background-color: #f00;
+          "
+        >
+          &nbsp;
+        </div>
+        - high distance to the polygon
+      </div>
+    </div>
+    <script id="worker1" type="javascript">
+      //used https://stackoverflow.com/a/54356286/16466946
+      self.onmessage = function({data: {points, polygonVertices, polygonSides, maxRadius, maxCenter, subDivide, level}}){
+      	// if(!maxCenter){
+      	// 	console.log(computeAllDistancesToPolygon([[341.9629484223358, 329.35039191745415, 0]], [], polygonVertices, polygonSides, 0))
+      	// }
+      	({maxRadius, maxCenter} = computeAllDistancesToPolygon(points, polygonVertices, polygonSides, maxRadius, maxCenter));
+      	self.postMessage({points, maxRadius, maxCenter});
+      	const newPoints = subDivide ? computeNextLevelGrid(points, maxRadius, level) : [];
+      	self.postMessage({newPoints});
+      };
+
+      function computeAllDistancesToPolygon(interiorPixels, polygonVertices, polygonSides, maxRadius, maxCenter){
+      	for(const pixel of interiorPixels){
+      		const [x0, y0, r0] = pixel;
+      		let r;
+      		if(r0){
+      			r = r0;
+      		}
+      		else{
+      			r = 1 / 0;
+      			for(const side of polygonSides){
+      				const ri = distance([x0, y0], side);
+      				r = Math.min(r, ri);
+      			}
+      			pixel[2] = r;
+      		}
+      		if(r > maxRadius){
+      			maxCenter = [x0, y0];
+      			maxRadius = r;
+      		}
+      	}
+      	return {maxRadius, maxCenter};
+      }
+
+      function computeNextLevelGrid(interiorPixels, maxRadius, level){
+      	const res = 1 / 3**level;
+      	let relativeRadii = interiorPixels.map(([_1, _2, r], i) => [r/maxRadius, i]);
+      	const intendedCount = 600 * 600 / 9;
+      	let relativeRadiusThreshold = 0.7;
+      	while(relativeRadii.length > intendedCount){
+      		relativeRadii = relativeRadii.filter(([rFrac])=>rFrac > relativeRadiusThreshold);
+      		relativeRadiusThreshold = relativeRadiusThreshold + (1-relativeRadiusThreshold)/5;
+      	}
+
+      	let topPixels = relativeRadii.map(([_, i]) => interiorPixels[i]);
+      	const n = topPixels.length;
+      	for(let i = 0; i < n; i++){
+      		const [x, y] = topPixels[i];
+      		const delta = res / 3;
+      		topPixels.push(
+      			[x - delta, y, null], [x + delta, y, null], [x, y - delta, null], [x, y + delta, null],
+      			[x - delta, y - delta, null], [x + delta, y - delta, null], [x - delta, y + delta, null],
+      			[x + delta, y + delta, null]
+      		);
+      	}
+
+      	return topPixels;
+      }
+
+      function distance([x0, y0], side){
+      	// distance from point to segment
+      	const {x1, y1, x12, y12} = side;
+      	const x01 = x0 - x1, y01 = y0 - y1,
+      		d12 = x12**2 + y12**2;
+      	const t = - (x01 * x12 + y01 * y12)/d12;
+      	if(t >= 0 && t <= 1){
+      		return Math.abs(x01 * y12 - y01 * x12)/Math.sqrt(d12);
+      	}
+      	const {x2, y2} = side;
+      	const x02 = x0 - x2, y02 = y0 - y2;
+      	return Math.min(Math.sqrt(x01**2 + y01**2), Math.sqrt(x02**2 + y02**2));
+      }
+    </script>
+    <script>
+      let level = 0,
+        maxLevel = 10;
+      let maxRadius = 0,
+        maxCenter = null,
+        newPoints;
+      let ctx, worker;
+      addEventListener('DOMContentLoaded', (event) => {
+        const buttonRunSubPixel = document.querySelector('#run_sub_pixel');
+        buttonRunSubPixel.onclick = function () {
+          buttonRunSubPixel.disabled = true;
+          startNextSubPixelLevel();
+        };
+
+        const blob = new Blob(
+          [document.querySelector('#worker1').textContent],
+          { type: 'text/javascript' }
+        );
+        worker = new Worker(window.URL.createObjectURL(blob));
+        worker.onmessage = function ({ data }) {
+          if (data.hasOwnProperty('points')) {
+            const { points, maxRadius: mr, maxCenter: mc } = data;
+            maxRadius = mr;
+            maxCenter = mc;
+            if (level === 0) {
+              drawFinal(points, maxRadius, maxCenter);
+              elStatus.innerText = `Mic at pixel resolution\nx0 = ${maxCenter[0]}\ny0 = ${maxCenter[1]}\nR = ${maxRadius}\n`;
+            }
+          } else if (data.hasOwnProperty('newPoints')) {
+            ({ newPoints } = data);
+            if (level === 0) {
+              buttonRunSubPixel.disabled = false;
+              setTimeout(() => buttonRunSubPixel.click(), 1000);
+              return;
+            }
+            startNextSubPixelLevel();
+          }
+        };
+
+        function startNextSubPixelLevel() {
+          level++;
+          if (newPoints.length > 0) {
+            elStatusSubPixel.innerText = `Sub-pixel: working ${level}/${maxLevel}`;
+            setTimeout(
+              () =>
+                worker.postMessage({
+                  points: newPoints,
+                  polygonVertices,
+                  polygonSides,
+                  maxRadius,
+                  maxCenter,
+                  level,
+                  subDivide: level < maxLevel,
+                }),
+              0
+            );
+          } else {
+            elStatusSubPixel.innerText =
+              `Mic at sub-pixel resolution\n` +
+              `x0 = ${maxCenter[0]}\ny0 = ${maxCenter[1]}\nR = ${maxRadius}\n`;
+            window.parent?.notifyComputationOver({
+              statusPixel: elStatus.innerText,
+              statusSubpixel: elStatusSubPixel.innerText,
+            });
+          }
+        }
+
+        const elStatus = document.querySelector('#status');
+        const elStatusSubPixel = document.querySelector('#status_subpixel');
+
+        const canvas = document.getElementById('myCanvas');
+        ctx = canvas.getContext('2d');
+
+        // Set canvas dimensions
+        const size0 = 600,
+          ROut = size0 / 2 - 20;
+        canvas.width = size0;
+        canvas.height = size0;
+
+        // Polygon vertices
+        let nInitialVertices = 12;
+        polygonVertices = regularPolygonVertices(nInitialVertices, ROut, {
+          x: size0 / 2,
+          y: size0 / 2,
+        });
+
+        const insert1At = 5;
+        const xNew1 =
+            polygonVertices[insert1At].x / 3 +
+            polygonVertices[insert1At + 1].x / 3 +
+            ROut / 3,
+          yNew1 =
+            polygonVertices[insert1At].y / 3 +
+            polygonVertices[insert1At + 1].y / 3 +
+            ROut / 3;
+        polygonVertices.splice(insert1At, 0, { x: xNew1, y: yNew1 });
+
+        const insert2At = 10;
+        const xNew2 =
+            polygonVertices[insert2At].x / 3 +
+            polygonVertices[insert2At + 1].x / 3 +
+            ROut / 10,
+          yNew2 =
+            polygonVertices[insert2At].y / 3 +
+            polygonVertices[insert2At + 1].y / 3 +
+            ROut / 3;
+        polygonVertices.splice(insert2At, 0, { x: xNew2, y: yNew2 });
+
+        if (window.self === window.top) {
+          // if not in an iframe
+          start();
+        } else {
+          // if in iframe
+          window.addEventListener(
+            'message',
+            function ({ data }) {
+              polygonVertices = data.polygonVertices;
+              start();
+            },
+            false
+          );
+          window.parent.notifyFrameLoaded('mic1', this);
+        }
+      });
+
+      let polygonVertices, polygonSides;
+
+      function regularPolygonVertices(sides, radius, center = { x: 0, y: 0 }) {
+        const vertices = [];
+        const angle = 360 / sides;
+
+        for (let i = 0; i < sides; i++) {
+          const x = radius * Math.cos((Math.PI * i * angle) / 180) + center.x;
+          const y = radius * Math.sin((Math.PI * i * angle) / 180) + center.y;
+          vertices.push({ x: x, y: y });
+        }
+
+        return vertices;
+      }
+
+      function buildPolygonData(polygonVertices) {
+        // precomputes all static (that don't depend on the ball) properties of the polygon vertices and sides
+        for (let i = 1; i <= polygonVertices.length; i++) {
+          Object.assign(polygonVertices[i - 1], {
+            next: polygonVertices[i === polygonVertices.length ? 0 : i],
+            index: i - 1,
+          });
+        }
+        const sides = [];
+        for (let i = 1; i <= polygonVertices.length; i++) {
+          const p1 = polygonVertices[i - 1],
+            p2 = p1.next,
+            x1 = p1.x,
+            y1 = p1.y,
+            x2 = p2.x,
+            y2 = p2.y,
+            x12 = x1 - x2,
+            y12 = y1 - y2;
+          sides.push({
+            index: i - 1,
+            p1,
+            p2,
+            x1,
+            y1,
+            x2,
+            y2,
+            x12,
+            y12,
+          });
+        }
+        for (let i = 1; i <= polygonVertices.length; i++) {
+          const side = sides[i - 1],
+            sideNext = sides[i === polygonVertices.length ? 0 : i];
+          side.next = sideNext;
+          sideNext.previous = side;
+        }
+        return sides;
+      }
+
+      function drawInitial() {
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        ctx.beginPath();
+        ctx.moveTo(polygonVertices[0].x, polygonVertices[0].y);
+        for (const line of polygonSides) {
+          ctx.lineTo(line.x2, line.y2);
+        }
+        ctx.strokeStyle = 'black';
+        ctx.stroke();
+        ctx.fillStyle = '#ef1';
+        // fill the polygon with color #ef1 (or any color that is not otherwise on canvas);
+        // that color will be used to identify the interior points
+        ctx.fill();
+      }
+
+      const interiorPixels = [];
+      let imageData;
+
+      function getInteriorPixels() {
+        // gets all the pixels interior to the polygon by identifying the color
+        // used to fill the polygon on drawInitial
+        imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+        for (let y0 = 0; y0 < ctx.canvas.height; y0++) {
+          for (let x0 = 0; x0 < ctx.canvas.width; x0++) {
+            const idPos = 4 * (y0 * ctx.canvas.width + x0);
+            const [r, g, b, a] = [
+              imageData.data[idPos],
+              imageData.data[idPos + 1],
+              imageData.data[idPos + 2],
+              imageData.data[idPos + 3],
+            ];
+            if (r === 0xee && g === 0xff && b === 0x11) {
+              // identifying color #eeff11
+              interiorPixels.push([x0, y0, 0, idPos]);
+            }
+          }
+        }
+      }
+
+      function drawFinal(interiorPixels, maxRadius, maxCenter) {
+        for (const pixel of interiorPixels) {
+          const [_x0, _y0, r, idPos] = pixel;
+          const frac = r / maxRadius; //Math.log(0.5 + r / maxRadius)/Math.log(1.5);
+          const colG = Math.floor(255 * (1 - frac));
+          //const colR = Math.floor(255 * frac);
+          imageData.data[idPos] = 255;
+          imageData.data[idPos + 1] = colG;
+          imageData.data[idPos + 2] = 0;
+        }
+        ctx.putImageData(imageData, 0, 0);
+
+        ctx.lineWidth = 0.4;
+        ctx.beginPath();
+        ctx.arc(maxCenter[0], maxCenter[1], maxRadius, 0, 2 * Math.PI);
+
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(maxCenter[0], maxCenter[1], 2, 0, 2 * Math.PI);
+        ctx.fillStyle = '#000';
+        ctx.fill();
+      }
+
+      function start() {
+        polygonSides = buildPolygonData(polygonVertices);
+        drawInitial();
+        getInteriorPixels();
+        worker.postMessage({
+          points: interiorPixels,
+          polygonVertices,
+          polygonSides,
+          maxRadius,
+          maxCenter,
+          level: 0,
+          subDivide: true,
+        });
+      }
+    </script>
+  </body>
+</html>

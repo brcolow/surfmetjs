@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+  <style></style>
+  <body>
+    <button disabled id="start_mcc1" style="font-size: larger; padding: 3px">
+      Compute Pixel MZC
+    </button>
+    <button disabled id="start_ball" style="font-size: larger; padding: 3px">
+      Start Ball Simulation</button
+    ><br />
+    <div
+      id="step1"
+      style="border: 1px solid black; padding: 3px; margin-right: 10px"
+    >
+      <button id="generate">Generate Random</button>
+      <small>Repeat, if inconvenient or ill-defined</small>
+      <br />
+      <canvas id="myCanvas"></canvas>
+    </div>
+    <br />
+
+    <script src="../utils/GenerateRndPoly.js"></script>
+    <script>
+      let polygonVertices;
+      const size0 = 600,
+        polySize0 = 500;
+      const polyCenter = {
+          x: size0 / 2,
+          y: size0 / 2,
+        },
+        nInitialVertices = 15,
+        RPolyExt = polySize0 / 3;
+
+      function generateRandomPoly() {
+        polygonVertices = generateRndPolygonVertices(
+          { from: nInitialVertices - 1, to: nInitialVertices + 1 },
+          RPolyExt,
+          polyCenter,
+          {
+            atIndices: {
+              insertAt: [
+                { from: 4, to: 5 },
+                { from: 8, to: 9 },
+              ],
+              moveAt: [{ from: 12, to: 13 }],
+            },
+          },
+          {
+            radial: {
+              insertR: { from: 0.9, to: 1.6 },
+              moveR: { from: 0.6, to: 0.9 },
+            },
+          },
+          {
+            angular: {
+              insertAng: { from: -0.2, to: 0.2 },
+              moveAng: { from: -0.2, to: 0.2 },
+            },
+          }
+        );
+      }
+
+      addEventListener('DOMContentLoaded', (event) => {
+        const canvas = document.getElementById('myCanvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = size0;
+        canvas.height = size0;
+
+        const divStep1 = document.querySelector('#step1');
+        const butGenerate = document.querySelector('#generate');
+        const butStartMcc1 = document.querySelector('#start_mcc1');
+
+        butStartBall = document.querySelector('#start_ball');
+        butGenerate.onclick = function () {
+          generateRandomPoly();
+          butStartMcc1.disabled = false;
+          draw(ctx);
+        };
+
+        butStartMcc1.onclick = function () {
+          const iframe1 = document.createElement('iframe');
+          iframe1.id = 'iframe1';
+          iframe1.src = 'mzc_pixels.html';
+          iframe1.width = '' + (butStartMcc1.parentElement.offsetWidth - 20);
+          iframe1.height = '700';
+          divStep1.parentElement.insertBefore(
+            iframe1,
+            divStep1.nextElementSibling
+          );
+          divStep1.parentElement.removeChild(divStep1);
+          butStartMcc1.disabled = true;
+        };
+
+        butStartBall.onclick = function () {
+          const iframe1 = document.querySelector('#iframe1');
+          iframe1.height = '300';
+          const iframe2 = document.createElement('iframe');
+          iframe2.id = 'iframe2';
+          iframe2.src = 'index_fast_ball_mzc.html';
+          iframe2.width = '' + (butStartBall.parentElement.offsetWidth - 20);
+          iframe2.height = '700';
+          iframe1.parentElement.insertBefore(
+            iframe2,
+            iframe1.nextElementSibling
+          );
+          butStartBall.disabled = true;
+        };
+      });
+
+      function draw(ctx) {
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        ctx.beginPath();
+        ctx.moveTo(polygonVertices[0].x, polygonVertices[0].y);
+        for (let i = 0; i < polygonVertices.length; i++) {
+          ctx.lineTo(polygonVertices[i].x, polygonVertices[i].y);
+        }
+        ctx.lineTo(polygonVertices[0].x, polygonVertices[0].y);
+        ctx.strokeStyle = 'black';
+        ctx.stroke();
+      }
+
+      function notifyFrameLoaded(id, winFrame) {
+        if (id === 'mzc1' || id === 'fast_ball') {
+          winFrame.postMessage({ polygonVertices });
+        }
+      }
+
+      function notifyComputationOver({ statusPixel, statusSubpixel }) {
+        butStartBall.disabled = false;
+      }
+    </script>
+  </body>
+</html>

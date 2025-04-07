@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<style>
+	h3{
+		text-decoration: underline
+	}
+	#control{
+		position: relative; top: 10px; display: inline-block; text-align: center; z-index: 10;
+	}
+	.container {
+		display: inline-grid;
+	}
+	.time-container{
+		grid-column-start: 1; grid-column-end: 1; grid-row: 1; align-self: end; vertical-align: middle
+	}
+	.canvas-container{
+		grid-column-start: 1; grid-column-end: 1; grid-row: 2; align-self: end; vertical-align: middle
+	}
+	.infobox-container{
+		grid-column-start: 2; grid-column-end: 2; grid-row: 2;  align-self: start; padding-left: 10px; vertical-align: top
+	}
+	.infobox{
+		border: 2px solid darkblue; font-family: monospace; width:200px; position: relative;
+		background-color: rgba(155, 155, 155, 0.5)
+	}
+	.infobox-text{
+		margin:10px
+	}
+	.infobox-top{
+		border-bottom: 1px solid black
+	}
+	.infobox-bottom{
+		border-top: 1px solid black
+	}
+
+	@media screen and (max-width: 820px) {
+		.infobox{
+			left: -215px
+		}
+	}
+</style>
+<body>
+<div>
+	<h3>Minimum Circumscribed Circle</h3>
+	<div id="control">
+		<input id="speed" type="range" min="5" max="200" step="5" disabled/>Speed&nbsp;x<span id="speed_text">1</span><br>
+		<button id="pause" disabled>Pause</button> &nbsp;
+		<label><input type="checkbox" id="restart">Restart Run</label>
+	</div>
+
+	<br>
+
+	<div class="container">
+		<div class="time-container">
+			<div style="position: relative;user-select: none;">
+				<div style="position: relative; top: -5px; font-weight: bolder; font-family: monospace">t:
+					<span id="t_time">0</span>s <br>forward steps: <span id="fwd_steps">-</span><br>fps: <span id="fps">-</span>
+				</div>
+			</div>
+		</div>
+
+		<div class="canvas-container">
+			<div style="display: inline-block; vertical-align: middle;float: left">
+				<canvas id="myCanvas" style="border: 1px solid grey"></canvas>
+				<div style="font-size: x-small">* time in "animation domain units";<br>if speed is x3, it will take only a 3rd of the interval</div>
+			</div>
+		</div>
+
+		<div class="infobox-container">
+			<div class="infobox">
+				<div style="text-align: center"><button id="start_pixel" disabled>Launch pixel comp.</button></div>
+				<div id="status_all" class="infobox-text infobox-top"></div>
+				<div id="status" class="infobox-text"></div>
+				<div id="status_prev" class="infobox-text infobox-bottom"></div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script src="../utils/utils.js"></script>
+<script src="../utils/GenerateRndPoly.js"></script>
+<script>
+	let size0 = 600,
+		RExt = Math.round(size0/2 * 0.8);
+
+	const nInitialVertices = 12,
+		center = {x: size0/2, y: size0/2};
+
+	let polygonVertices;
+
+	function randomVertices(){
+		return generateRndPolygonVertices({from: nInitialVertices - 1, to: nInitialVertices + 1}, RExt, center,
+			{atIndices: {insertAt: [1, {from: 3, to: 5}, {from: -4, to: -2}]}},
+			{radial: {insertR: {from: 0.4, to: 0.9}}},
+			{angular: {insertAng: {from: -0.2, to: 0.2}}}
+		);
+	}
+
+
+	const nForwardSteps = 3;
+
+	let speedFactor = 20;
+
+	//////////////////////////////////////
+
+	let msSinceLastInflation;
+	let isRunCompleted;
+	let pausedRun, startTimeout;
+	let restartRun = true;
+	const restartAfter = 4000;
+
+	let elTTime,
+		elFps,
+		elFwd,
+		butPause,
+		cBoxRestart,
+		rngSpeed,
+		butStartPixel;
+
+	let worker;
+	let tTotal;
+
+	let statusText;
+	let statusColor;
+	let statusHtmlAll = '', statusTextPrev = '';
+	let iframe_enabled;
+	let iframe_on = false;
+
+	let isCollisionCompleted, finalizeRequested;
+
+	let previousTime;
+	let ctx;
+
+	addEventListener("DOMContentLoaded", (_event) => {
+		if(!window.Worker){
+			return;
+		}
+
+		worker = new Worker('worker_fast_ball_mic.js');
+		worker.onmessage = onWorkerMessage;
+
+		elTTime = document.querySelector('#t_time');
+		elFps = document.querySelector('#fps');
+		elFwd = document.querySelector('#fwd_steps');
+		butPause = document.querySelector('#pause');
+		cBoxRestart = document.querySelector('#restart');
+
+		pausedRun = false;
+		butPause.onclick = function(){
+			if(!isRunCompleted){
+				pausedRun = !pausedRun;
+				if(!pausedRun){
+					requestAnimationFrame(animate)
+				}
+			}
+			butPause.innerText = pausedRun ? 'Continue' : 'Pause';
+		}
+
+		cBoxRestart.checked = restartRun;
+		cBoxRestart.onchange = function(){
+			if(cBoxRestart.checked){
+				restartRun = true;
+				if(isRunCompleted){
+					isRunCompleted = false;
+					startTimeout = setTimeout(startRun, 0);
+				}
+			}
+			else{
+				restartRun = false;
+				if(isRunCompleted && startTimeout){
+					clearTimeout(startTimeout);
+					startTimeout = false;
+				}
+			}
+		}
+
+		rngSpeed = document.querySelector('#speed');
+		const txtSpeed = document.querySelector('#speed_text');
+		rngSpeed.value = ""+speedFactor*10;
+		txtSpeed.innerText = speedFactor;
+		rngSpeed.onchange = function(){
+			speedFactor = parseFloat(rngSpeed.value)/10;
+			txtSpeed.innerText = speedFactor;
+		}
+
+		butStartPixel = document.querySelector('#start_pixel');
+		butStartPixel.onclick = function(){
+			const iframe1 = document.createElement('iframe');
+			iframe1.id = 'iframe1';
+			iframe1.src = 'mic_pixels.html';
+			iframe1.width = ''+(document.body.offsetWidth - 20);
+			iframe1.height = '700';
+			document.body.append(iframe1);
+			butStartPixel.disabled = true;
+			iframe_on = true;
+			doPause();
+			window.scrollTo({left: 0, top: document.body.scrollHeight, behavior: 'smooth'});
+		}
+
+		// const curvePoints = getCurvePoints(points.flatMap(pair => pair), 0.5, 25, true);
+		const canvas = document.getElementById('myCanvas');
+		ctx = canvas.getContext('2d');
+
+		// Set canvas dimensions
+		canvas.width = size0;
+		canvas.height = size0;
+		document.querySelector('#control').style.width = canvas.offsetWidth + "px";
+
+
+		if(window.self === window.top){ // if not in an iframe
+			polygonVertices = randomVertices();
+			iframe_enabled = true;
+			startRun();
+		}
+		else{ // if in iframe
+			window.addEventListener('message', function({data}) {
+				polygonVertices = data.polygonVertices;
+				iframe_enabled = false;
+				butStartPixel.style.display = 'none';
+				startRun();
+			}, false);
+			window.parent.notifyFrameLoaded('fast_ball', this);
+		}
+	});
+
+	function doPause(){
+		if(pausedRun){
+			return;
+		}
+		pausedRun = true;
+		butPause.innerText = 'Continue';
+		if(isRunCompleted && startTimeout){
+			clearTimeout(startTimeout);
+			startTimeout = false;
+			return true;
+		}
+		return false;
+	}
+
+	function doContinue(){
+		if(!pausedRun){
+			return;
+		}
+		pausedRun = false;
+		butPause.innerText = 'Pause';
+		if(isRunCompleted){
+			if(restartRun){
+				startTimeout = setTimeout(startRun, restartAfter/2);
+			}
+		}
+		else{
+			requestAnimationFrame(animate);
+		}
+	}
+
+	function onWorkerMessage(e){
+		if(e.data.type === 'postInit'){
+			({polygonSides, polygonVertices} = e.data);
+			onWorkerInit();
+		}
+		else if(e.data.type === 'nextCollisionBall'){
+			if(isRunCompleted){
+				return;
+			}
+
+			const {nextCollisionBall} = e.data;
+			if(!nextCollisionBall.moving){
+				isCollisionCompleted = true;
+			}
+			if(!nextCollisionBall.escaping){
+				computedCollisions.push(nextCollisionBall);
+			}
+		}
+		else if(e.data.type === 'ballFinally'){
+			ball = e.data.ballFinally;
+			computedCollisions.push(ball);
+		}
+	}
+
+	function startRun(){
+		isRunCompleted = false;
+		initializePolygonAndBall();
+		worker.postMessage({
+			type: "init",
+			size0, RExt,
+			polygonSides,
+			polygonVertices,
+			vMag,
+			previousCollisionBall: computedCollisions[0]
+		});
+	}
+
+	function onWorkerInit(){
+		butPause.disabled = false;
+		setTimeout(()=>{
+			butPause.focus()
+		}, 0);
+		rngSpeed.disabled = false;
+		collisionCount = 0;
+		pausedTime = null;
+		tTotal = 0;
+		statusColor = 'black';
+		if(statusText){
+			let iNewLine2 = statusText.indexOf('\n');
+			iNewLine2 = statusText.indexOf('\n', iNewLine2 + 1) + 1;
+			let iUnderscore = statusText.indexOf('_');
+			statusTextPrev = `Previous run:\n` + statusText.substring(iNewLine2, iUnderscore-1);
+		}
+		statusText = `Run #${runTimes}`;
+		t_time_text = 0;
+		fps_t_start = 0; fps_t_end = 0; frames = 1; t_fps = 0;
+		t_last_status_update = 0;
+		previousTime = null;
+		msSinceLastInflation = 0;
+
+		isRunCompleted = false;
+		isCollisionCompleted = false;
+		finalizeRequested = false;
+		runTimes = runTimes + 1;
+		statusHtmlAll = '';
+		if(xcAll !== null){
+			statusHtmlAll += `<strong>Best solution thus far</strong>`;
+			statusHtmlAll += `<br>xc = ${numberToFixed(xcAll, 10)}`;
+			statusHtmlAll += `<br>yc = ${numberToFixed(ycAll, 10)}`;
+			statusHtmlAll += `<br><strong>r = ${numberToFixed(rAll, 10)}</strong>`;
+			statusHtmlAll += `<br><br>initial velocity:<br>vMag = ${vMag}<br>` +
+				`vAngle = ${numberToFixed(vAngleAll * 180/Math.PI, 4)}<sup>O</sup>`;
+		}
+
+		updateOverallStatus();
+		draw();
+		requestAnimationFrame(animate);
+	}
+
+	let polygonSides, ball, computedCollisions, vMag, vAngle;
+
+	function initializePolygonAndBall(){
+		vAngle = Math.random() * 2 * Math.PI;
+		//console.log(`vAngle = ${vAngle}`);
+
+		vMag = 30;
+
+		ball = {
+			x: center.x,
+			y: center.y,
+			radius: 5,
+			vx: vMag * Math.cos(vAngle),
+			vy: vMag * Math.sin(vAngle),
+			lastSidesCollidedWith: [],
+			vRadius: 1,
+		};
+
+		computedCollisions = [{...ball, t: 0, impactedSideIndices: [], impactedVertexIndex: -1}];
+	}
+
+
+	function draw() {
+		ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+		ctx.beginPath();
+		ctx.moveTo(polygonVertices[0].x, polygonVertices[0].y);
+		for(const line of polygonSides){
+			ctx.lineTo(line.x2, line.y2);
+		}
+
+		ctx.strokeStyle = 'black';
+		ctx.stroke();
+
+		// Draw computedCollisions
+		let transparency = 1;
+		ctx.strokeStyle = `rgba(0, 0, 0, ${transparency})`;
+		ctx.beginPath();
+		ctx.moveTo(ball.x, ball.y)
+		for(let i = 1; i < computedCollisions.length; i++){
+			const collisionBall = computedCollisions[i];
+			ctx.lineTo(collisionBall.x, collisionBall.y);
+			ctx.stroke();
+			ctx.save();
+			ctx.setLineDash([4, 2]);
+			ctx.beginPath();
+			ctx.arc(collisionBall.x, collisionBall.y, collisionBall.radius, 0, 2 * Math.PI);
+			ctx.stroke();
+			ctx.restore();
+			transparency *= 0.6;
+			ctx.strokeStyle = `rgba(0, 0, 0, ${transparency})`;
+			ctx.beginPath();
+			ctx.moveTo(collisionBall.x, collisionBall.y);
+		}
+
+		// Draw ball
+		ctx.fillStyle = 'rgba(0, 0, 255, 0.7)';
+		ctx.beginPath();
+		ctx.beginPath();
+		ctx.arc(ball.x, ball.y, ball.radius, 0, 2 * Math.PI);
+		ctx.closePath();
+		ctx.fill();
+	}
+
+
+	function updateStatus(){
+		const elStatus = document.querySelector('#status');
+		elStatus.style.color = statusColor;
+		elStatus.innerText = statusText;
+	}
+
+	function updateOverallStatus(){
+		const elStatusAll = document.querySelector('#status_all');
+		elStatusAll.innerHTML = statusHtmlAll;
+		const elStatusPrev = document.querySelector('#status_prev');
+		elStatusPrev.innerText = statusTextPrev;
+	}
+
+	let runTimes = 0;
+	let collisionCount;
+	let pausedTime;
+	function updateBall(){
+		if(computedCollisions.length < 1){
+			return false;
+		}
+		let ballA = computedCollisions[0],
+			ballB = computedCollisions[0];
+		while(computedCollisions.length > 1){
+			ballA = ballB;
+			ballB = computedCollisions[1];
+			if(tTotal > ballB.t){
+				computedCollisions.shift()
+				if(!ballB.final){
+					collisionCount++;
+					statusText = `Run #${runTimes}\nCollision #${collisionCount}`;
+				}
+				if(finalizeRequested){
+					break;
+				}
+
+				updateStatus();
+				worker.postMessage({
+					type: isCollisionCompleted ? "finalizeBall" : "computeNextCollision"
+				});
+				if(isCollisionCompleted){
+					//console.log(`finalizeRequested (1)`);
+					finalizeRequested = true;
+				}
+			}
+			else{
+				break;
+			}
+		}
+		if(tTotal > ballB.t){
+			ball = {...ballB};
+			if(ball.final){
+				onRunCompleted(ball.escaping);
+			}
+			else if(isCollisionCompleted && !finalizeRequested){
+				//console.log(`finalizeRequested (2)`);
+				worker.postMessage({
+					type: "finalizeBall"
+				});
+				finalizeRequested = true;
+			}
+		}
+		else{
+			const tA = ballA.t, tB = ballB.t;
+			const interpolate = ['x', 'y', 'radius'];
+			ball = Object.fromEntries(Object.entries(ballA).map(([prop, val]) =>
+				[prop, interpolate.includes(prop) ? val + (ballB[prop] - val) * (tTotal - tA) / (tB - tA) : val]))
+		}
+		return true;
+	}
+
+
+	let t_time_text, fps_t_start, fps_t_end, frames, t_fps, t_last_status_update;
+	function animate(currentTime) {
+		frames++;
+		if(isRunCompleted){
+			elFps.innerText = '-';
+			return;
+		}
+		if(pausedRun){
+			elFps.innerText = '-';
+			pausedTime = currentTime;
+			return;
+		}
+		if(pausedTime !== null){
+			previousTime += currentTime - pausedTime;
+			pausedTime = null;
+		}
+		if (previousTime === null){
+			// this will give the number of forward steps
+			for(let _ = 0; _ < nForwardSteps; _++){
+				worker.postMessage({
+					type: "computeNextCollision"
+				});
+			}
+		}
+		else{
+			const timePerFrame = currentTime - previousTime;
+			tTotal += timePerFrame * speedFactor / 1000;
+			if(tTotal - t_time_text > 0.05){
+				elTTime.innerText = tTotal.toFixed(1);
+			}
+			if(currentTime - t_fps > 250){
+				fps_t_end = currentTime;
+				elFps.innerText = (1000*frames/(fps_t_end - fps_t_start)).toFixed(0);
+				elFwd.innerText = computedCollisions.length - 1;
+				fps_t_start = fps_t_end;
+				frames = 0;
+				t_fps = currentTime;
+			}
+			msSinceLastInflation += timePerFrame;
+		}
+		if(currentTime - t_last_status_update > 250){
+			t_last_status_update = currentTime;
+		}
+		previousTime = currentTime;
+		if(updateBall()){
+			draw();
+		}
+		if(!isRunCompleted){
+			requestAnimationFrame(animate);
+		}
+	}
+
+	let xcAll = null, ycAll = null, rAll = 0, vAngleAll;
+	function onRunCompleted(){
+		draw();
+		butPause.disabled = true;
+		rngSpeed.disabled = true;
+		if(statusText.match(/#\d+$/)){
+			statusText += `\nxc = ${numberToFixed(ball.x, 10)}\nyc = ${numberToFixed(ball.y, 10)}\n`+
+				`r = ${numberToFixed(ball.radius, 10)}\n_`;
+
+			if(ball.escaping){
+				statusColor = 'red';
+				statusText += '\nRun complete [error]';
+			}
+			else{
+				if(ball.radius > rAll){
+					rAll = ball.radius;
+					xcAll = ball.x;
+					ycAll = ball.y;
+					vAngleAll = vAngle;
+				}
+				statusColor = 'darkgreen';
+				statusText += '\nRun complete';
+			}
+		}
+		isRunCompleted = true;
+		updateStatus();
+		if(iframe_enabled && !iframe_on){
+			butStartPixel.removeAttribute('disabled');
+		}
+		if(restartRun){
+			startTimeout = setTimeout(startRun, restartAfter);
+		}
+	}
+
+	function notifyFrameLoaded(id, winFrame){
+		if(id === 'mic1'){
+			winFrame.postMessage({polygonVertices})
+		}
+	}
+
+	function notifyComputationOver(){
+		window.scrollTo({left: 0, top: 0, behavior: 'smooth'});
+		doContinue();
+	}
+
+</script>
+</body>
+</html>
