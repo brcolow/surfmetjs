@@ -1,5 +1,7 @@
 import { computeConvexHull, distanceSquared, getInitialSolution } from './utils.js';
 
+const gamma = 50; // approximation parameter to simulate max-min functions with log-sum-exp (softmax) 
+
 /**
  * Performs gradient descent to optimize the circle parameters.
  * 
@@ -29,8 +31,55 @@ function gradientDescent(points, circleType, initialEstimate, learningRate = 0.0
     }
     previousParams = params;
     previousObjective = currentObjective;
- }
+  }
 
+  return { center: [params[0], params[1]], radius: params[2] };
+}
+
+/**
+ * Performs a gradient descent with adaptive learning rate (Backtracking line search)
+ * Remark: The code here is only for MZC
+ * 
+ * @param {Array<Array<number>>} points - The list of points to evaluate.
+ * @param {string} circleType - The type of circle ("MIC", "MCC", or "MZC").
+ * @param {Object} initialEstimate - Initial estimate of the circle parameters.
+ * @param {number} [learningRateDecay=0.75] - The decay factor for the learning rate.
+ * @param {number} [slopeDamper=0.25] - The damping factor for the slope at the current point.
+ * @param {number} [maxIterations=1000] - The maximum number of iterations.
+ * @param {number} [epsilon=1e-8] - Stop if the gradient norm is below epsilon.
+ * @returns {Object} The best solution found as an Object: {center: [x, y], radius: r}
+ */
+function adaptiveGradientDescent(points, circleType, initialEstimate, learningRateDecay = 0.75, slopeDamper=0.25, maxIterations = 1000) {
+  const convexHull = computeConvexHull(points);
+  const initialSolution = getInitialSolution(points, circleType, initialEstimate, convexHull);
+
+  let params = [
+    (initialSolution.outerCircle.center[0] + initialSolution.innerCircle.center[0]) / 2,
+    (initialSolution.outerCircle.center[1] + initialSolution.innerCircle.center[1]) / 2,
+    null // We will not use the variable r
+  ];
+
+  for (let i = 0; i < maxIterations; i++) {
+    const grad = gradient(params, points, circleType);
+    if (grad[0] ** 2 + grad[1] ** 2 < epsilon) {
+      console.log("Stopping gradient descent due to small gradient.");
+      break;
+    }
+    const dampedSlope = slopeDamper * (grad[0] ** 2 + grad[1] ** 2);
+    let t = 1.0; // Line search parameter
+    const objective = getObjectiveFunction(circleType)(params, points);
+    while (true) {
+      let paramsT = params.map((p, i) => p - grad[i] );
+      let objectiveT = getObjectiveFunction(circleType)(paramsT, points);
+      if (objectiveT < objective - t * dampedSlope) {
+        params = paramsT;
+        break; // Accept backtracked params + t * grad
+      } else {
+        t *= learningRateDecay; // scale down the steplength
+      }
+    }
+  }
+  // Here again in MZC, radius will not be used
   return { center: [params[0], params[1]], radius: params[2] };
 }
 
@@ -85,22 +134,16 @@ function objectiveFunctionMCC(params, points) {
  */
 function objectiveFunctionMZC(params, points) {
   const [x, y, r] = params;
+  // r will not play any role and will be ignored in the following computations
 
-  let rMin = Infinity;
-  let rMax = -Infinity;
+  const radii = points.map(point => Math.sqrt(distanceSquared(point, [x, y])));
+  let rMax = Math.max(radii);
+  let rMin = Math.min(radii);
 
-  for (const point of points) {
-    const dist = Math.sqrt(distanceSquared(point, [x, y]));
-    rMin = Math.min(rMin, dist);
-    rMax = Math.max(rMax, dist);
-  }
+  let sumExpPos = radii.reduce((sum, r) => Math.exp(gamma * (r - rMax)) + sum, 0);
+  let sumExpNeg = radii.reduce((sum, r) => Math.exp(gamma * (rMin - r)) + sum, 0);
 
-  const zoneWidth = rMax - rMin;
-  let penalty = 0;
-  if (rMin > r) {
-    penalty = (rMin - r) * 100;
-  }
-  return zoneWidth + penalty;
+  return (Math.log(sumExpPos) - Math.log(sumExpNeg)) / gamma + rMax - rMin;
 }
 
 /**
@@ -115,47 +158,26 @@ function objectiveFunctionMZC(params, points) {
  */
 function gradient(params, points, circleType, penalty = 100) {
   const [x, y, r] = params;
+  // Again, r and dr will not be used
   let dx = 0, dy = 0, dr = 0;
 
   if (circleType === "MZC") {
-    let rMax = -Infinity;
-    let rMin = Infinity;
-    let rMaxPoint = null;
-    let rMinPoint = null;
 
-    for (const point of points) {
-      const dist = Math.sqrt(distanceSquared(point, [x, y]));
-      if (dist > rMax) {
-        rMax = dist;
-        rMaxPoint = point;
-      }
-      if (dist < rMin) {
-        rMin = dist;
-        rMinPoint = point;
-      }
-    }
+    const radii = points.map(point => Math.sqrt(distanceSquared(point, [x, y])));
+    let rMax = Math.max(radii);
+    let rMin = Math.min(radii);
 
-    if (rMaxPoint) {
-      const [px, py] = rMaxPoint;
-      const dist = Math.sqrt(distanceSquared(rMaxPoint, [x, y]));
-      const factor = 1 / (dist + 1e-9); // Avoid division by zero
-      dx += (x - px) * factor;
-      dy += (y - py) * factor;
-      dr += 1;
-    }
+    let expPos = radii.map(r => Math.exp(gamma * (r - rMax)));
+    let expNeg = radii.map(r => Math.exp(gamma * (rMin - r)));
 
-    if (rMinPoint) {
-      const [px, py] = rMinPoint;
-      const dist = Math.sqrt(distanceSquared(rMinPoint, [x, y]));
-      const factor = 1 / (dist + 1e-9); // Avoid division by zero
-      dx -= (x - px) * factor;
-      dy -= (y - py) * factor;
-      dr -= 1;
-    }
+    let sumExpPos = expPos.reduce((sum, ep) => ep + sum, 0);
+    let sumExpNeg = expNeg.reduce((sum, en) => en + sum, 0);
 
-    if (rMin > r) {
-      dr += penalty * (rMin - r);
-    }
+    let weights = radii.map((r, i) => (expPos[i] / sumExpPos - expNeg[i] / sumExpNeg) / r);
+
+    dx = - weights.reduce((sum, w, i) => sum + w * (points[i][0] - x))
+    dy = - weights.reduce((sum, w, i) => sum + w * (points[i][1] - y))
+
   } else {
     for (const point of points) {
       const [px, py] = point;
