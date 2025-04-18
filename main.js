@@ -468,7 +468,6 @@ readPointsFromURL(nistData)
 
       // Strip out the constant z-value of the 3d points from the NIST file.
       points = points.map(point => [point[0], point[1]]);
-      leastSquaresCircle = levenMarqFull(points);
       console.log(leastSquaresCircle);
       // Subtract the LSC center from the points to center the point-cloud around the origin (0,0).
       centeredPoints = points.map(point => [point[0] - leastSquaresCircle.a, point[1] - leastSquaresCircle.b]);
