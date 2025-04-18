@@ -1,4 +1,4 @@
 export default {
   assetsInclude: ['**/*.ds'],
-  base: "/surfmetjs/",
+  base: "https://brcolow.github.io/surfmetjs/",
 }
