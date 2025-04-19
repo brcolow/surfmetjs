@@ -2,7 +2,7 @@ import { FFT } from './fft.js';
 import { transform } from './fft2.js';
 import { levenMarqFull } from './circlefit.js';
 import { simulatedAnnealing } from './simulated_annealing.js';
-import { gradientDescent } from './gradient_descent.js';
+import { adaptiveGradientDescent, gradientDescent } from './gradient_descent.js';
 import * as Plotly from 'plotly.js-dist-min';
 import Chart from 'chart.js/auto';
 import nistData from './nist/cir2d22.ds';
@@ -412,6 +412,11 @@ readPointsFromURL(nistData)
       console.log("Gradient descent best solution:");
       console.log(gradientDescent(points, "MIC", leastSquaresCircle));
 
+      console.log("(Adaptive) gradient descent for MZC:");
+      console.log(adaptiveGradientDescent(points, "MZC", leastSquaresCircle));
+      if (true) {
+        return;
+      }
       // Subtract the LSC center from the points to center the point-cloud around the origin (0,0).
       // const centeredPoints = points.slice().map(point => [point[0] - leastSquaresCircle.a, point[1] - leastSquaresCircle.b]);
 
@@ -445,9 +450,6 @@ readPointsFromURL(nistData)
 
       console.log("Gradient descent of SA solution: ");
       console.log(gradientDescent(points, "MIC", { a: biggestMic.center[0], b: biggestMic.center[1], r: biggestMic.radius}));
-      if (true) {
-        return;
-      }
 
       let data3 = polarToCartesian(generateRandomRoundnessProfile(3, 5, 6));
       console.log("Random data of 3 points around circle: " + data3);
@@ -466,7 +468,6 @@ readPointsFromURL(nistData)
 
       // Strip out the constant z-value of the 3d points from the NIST file.
       points = points.map(point => [point[0], point[1]]);
-      leastSquaresCircle = levenMarqFull(points);
       console.log(leastSquaresCircle);
       // Subtract the LSC center from the points to center the point-cloud around the origin (0,0).
       centeredPoints = points.map(point => [point[0] - leastSquaresCircle.a, point[1] - leastSquaresCircle.b]);

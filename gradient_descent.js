@@ -49,7 +49,7 @@ function gradientDescent(points, circleType, initialEstimate, learningRate = 0.0
  * @param {number} [epsilon=1e-8] - Stop if the gradient norm is below epsilon.
  * @returns {Object} The best solution found as an Object: {center: [x, y], radius: r}
  */
-function adaptiveGradientDescent(points, circleType, initialEstimate, learningRateDecay = 0.75, slopeDamper=0.25, maxIterations = 1000) {
+function adaptiveGradientDescent(points, circleType, initialEstimate, learningRateDecay = 0.75, slopeDamper=0.25, maxIterations = 1000, epsilon = 1e-8) {
   const convexHull = computeConvexHull(points);
   const initialSolution = getInitialSolution(points, circleType, initialEstimate, convexHull);
 
@@ -220,4 +220,4 @@ const getObjectiveFunction = (circleType) => {
   }
 };
 
-export { gradientDescent }
+export { adaptiveGradientDescent, gradientDescent }

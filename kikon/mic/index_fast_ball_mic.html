@@ -107,7 +107,7 @@
 	let isRunCompleted;
 	let pausedRun, startTimeout;
 	let restartRun = true;
-	const restartAfter = 4000;
+	const restartAfter = 1000;
 
 	let elTTime,
 		elFps,
@@ -329,7 +329,7 @@
 
 		updateOverallStatus();
 		draw();
-		requestAnimationFrame(animate);
+		noAnimate();
 	}
 
 	let polygonSides, ball, computedCollisions, vMag, vAngle;
@@ -519,6 +519,31 @@
 			requestAnimationFrame(animate);
 		}
 	}
+
+	function noAnimate() {
+   frames++;
+   if (previousTime === null){
+     // this will give the number of forward steps
+     for(let _ = 0; _ < nForwardSteps; _++){
+       worker.postMessage({
+         type: "computeNextCollision"
+       });
+     }
+     previousTime = -1;
+   }
+   else{
+     tTotal += 10;
+     elTTime.innerText = tTotal.toFixed(1);
+   }
+   updateBall();
+   if(!isRunCompleted){
+     setTimeout(noAnimate);
+   }
+   else{
+     draw();
+   }
+}
+
 
 	let xcAll = null, ycAll = null, rAll = 0, vAngleAll;
 	function onRunCompleted(){
