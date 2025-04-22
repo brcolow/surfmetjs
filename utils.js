@@ -36,6 +36,37 @@ export function areConcentric(circle1, circle2) {
 }
 
 /**
+ * Computes the mean of a set of points
+ *
+ * @param {Array<Array<number>>} points - The set of 2D points.
+ * @returns {Array<number>} - The mean of the points
+*/
+export function mean(points) {
+  let mean = points.reduce(([x, y], p) => [x + p[0], y + p[1]], [0, 0]);
+  mean[0] /=  points.length;
+  mean[1] /=  points.length;
+  return mean;
+}
+
+/**
+ * Apply the transformation p |--> (p - center) / ||p - center||^2
+ *
+ * @param {Array<Array<number>>} points - The set of 2D points to apply the transformation to
+ * @param {Array<number>} center - The center of the transformation
+ * @returns {Array<Array<number>>} - The transformed points
+ */
+export function invertAtUnitCircle(points, center) {
+  return points.map(p => {
+    let pointsOffset = [p[0] - center[0], p[1] - center[1]];
+    let distSquared = distanceSquared(p, center);
+    return [
+      center[0] + pointsOffset[0] / distSquared,
+      center[1] + pointsOffset[1] / distSquared,
+    ]
+  });
+}
+
+/**
  * Computes the convex hull of a set of 2D points using the Graham scan algorithm.
  *
  * @param {Array<Array<number>>} points - The set of 2D points.
@@ -119,8 +150,30 @@ export function getInitialSolution(points, circleType, leastSquaresCircle, conve
     // Find the point farthest from the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
     return { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] };
   } else if (circleType === "MZC") {
-    // Use the MIC initial guess as the inner circle and the MCC guess as the outer circle.
-    return { outerCircle: { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] }, innerCircle: { radius: findNearestPoint(points, [0, 0]).distance, center: [0, 0] } };
+    // Former suggestion: Use the MIC initial guess as the inner circle and the MCC guess as the outer circle. 
+    // Current suggestion: Use the mean of the points of the convex hull. However, this does not take into account the points more in the interior of that convex hull which also affect the objective function
+    // Thus, invert the points at the unit circle around that mean (swapping points closer to the mean to points farther away from the mean), compute the convex hull of these inverted points and translate them back to the initial coordinate system.
+
+    // Need to refactor: This function gets `convexHull` passed.
+    // However, the `outerConvexHull` (as well as the `innerConvexHull`) is computed within this function. Therefore, `convexHull` is ignored (at least in the "MZC" case) and this feels weird. 
+
+    const outerConvexHull = computeConvexHull(points);
+    const meanOuterPoints = mean(outerConvexHull);
+    const pointsInverted = invertAtUnitCircle(points, meanOuterPoints);
+    const invertedInnerConvexHull = computeConvexHull(pointsInverted);
+    const innerConvexHull = invertAtUnitCircle(invertedInnerConvexHull, meanOuterPoints);
+    const meanInnerPoints = mean(innerConvexHull);
+
+    return { 
+      outerCircle: { 
+        radius: findFarthestPoint(outerConvexHull, meanOuterPoints).distance, 
+        center: meanOuterPoints 
+      }, 
+      innerCircle: { 
+        radius: findNearestPoint(innerConvexHull, meanInnerPoints).distance, 
+        center: meanInnerPoints
+      } 
+    };
   }
 }
 
