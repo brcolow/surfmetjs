@@ -438,4 +438,5 @@ nist_cir_data_2 = np.array([[-605.26558,-259.31783,381.29524],
 xy_nist_data = nist_cir_data_2[:, :2]
 result = solve_mzc(xy_nist_data)
 print(result)
+print("Roundness: " + str(result["radius_outer"] - result["radius_inner"]))
 plot_mzc(xy_nist_data, result)
