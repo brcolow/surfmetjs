@@ -1,7 +1,7 @@
-import { 
-  computeConvexHull, 
-  distanceSquared, 
-  getInitialSolution, 
+import {
+  computeConvexHull,
+  distanceSquared,
+  getInitialSolution,
   mean,
   invertAtUnitCircle
 } from './utils.js';
@@ -20,14 +20,14 @@ function gradientDescent(points, circleType, initialEstimate, learningRate = 0.0
   const convexHull = computeConvexHull(points);
   const initialSolution = getInitialSolution(points, circleType, initialEstimate, convexHull);
 
-  let params = [ initialSolution.center[0], initialSolution.center[1], initialSolution.radius ];
+  let params = [initialSolution.center[0], initialSolution.center[1], initialSolution.radius];
   let previousObjective = Infinity;
   let previousParams = params;
   for (let i = 0; i < maxIterations; i++) {
     const grad = gradient(params, points, circleType);
     params = params.map((p, i) => p - learningRate * grad[i]);
     const currentObjective = getObjectiveFunction(circleType)(params, points);
-   // console.log(`Iteration ${i}: Objective value: ${currentObjective}`);
+    // console.log(`Iteration ${i}: Objective value: ${currentObjective}`);
     if (currentObjective > previousObjective) {
       console.log("Objective function increased, stopping at iteration: " + i);
       params = previousParams;
@@ -55,7 +55,7 @@ function gradientDescent(points, circleType, initialEstimate, learningRate = 0.0
  * @param {number} [epsilon=1e-8] - Stop if the gradient norm is below epsilon.
  * @returns {Object} The best solution found as an Object: {center: [x, y], radius: r}
  */
-function adaptiveGradientDescent(points, circleType, initialEstimate, gamma = 200, learningRateDecay = 0.75, slopeDamper=0.25, maxIterations = 1000, maxIterationsLineSearch = 100, epsilon = 1e-8) {
+function adaptiveGradientDescent(points, circleType, initialEstimate, gamma = 200, learningRateDecay = 0.75, slopeDamper = 0.25, maxIterations = 1000, maxIterationsLineSearch = 100, epsilon = 1e-8) {
 
   const initialSolution = getInitialSolution(points, circleType, initialEstimate, null);
 
@@ -74,8 +74,8 @@ function adaptiveGradientDescent(points, circleType, initialEstimate, gamma = 20
     const dampedSlope = slopeDamper * (grad[0] ** 2 + grad[1] ** 2);
     let t = 1.0; // Line search parameter
     const objective = getObjectiveFunction(circleType, gamma)(params, points);
-    for (let j = 0; j < maxIterationsLineSearch; j ++) {
-      let paramsT = params.map((p, i) => p - t * grad[i] );
+    for (let j = 0; j < maxIterationsLineSearch; j++) {
+      let paramsT = params.map((p, i) => p - t * grad[i]);
       // let objectiveT = objectiveFunctionMZC(paramsT, points, gamma);
       let objectiveT = getObjectiveFunction(circleType, gamma)(paramsT, points);
       if (objectiveT < objective - t * dampedSlope) {
@@ -182,7 +182,7 @@ function gradient(params, points, circleType, penalty = 100, gamma = 200) {
     let sumExpPos = expPos.reduce((sum, ep) => ep + sum, 0);
     let sumExpNeg = expNeg.reduce((sum, en) => en + sum, 0);
 
-    let weights = radii.map((r, i) => ( expPos[i] / sumExpPos - expNeg[i] / sumExpNeg ) / r);
+    let weights = radii.map((r, i) => (expPos[i] / sumExpPos - expNeg[i] / sumExpNeg) / r);
 
     dx = - weights.reduce((sum, w, i) => sum + w * (points[i][0] - x), 0);
     dy = - weights.reduce((sum, w, i) => sum + w * (points[i][1] - y), 0);
@@ -218,26 +218,17 @@ function gradient(params, points, circleType, penalty = 100, gamma = 200) {
  */
 const getObjectiveFunction = (circleType, gamma = 200) => {
   switch (circleType) {
-      case "MIC":
-          return objectiveFunctionMIC;
-      case "MCC":
-          return objectiveFunctionMCC;
-      case "MZC":
-          return objectiveFunctionMZC;
-      default:
-          // Handle invalid circleType
-          throw new Error("Invalid circleType");
+    case "MIC":
+      return objectiveFunctionMIC;
+    case "MCC":
+      return objectiveFunctionMCC;
+    case "MZC":
+      return objectiveFunctionMZC;
+    default:
+      // Handle invalid circleType
+      throw new Error("Invalid circleType");
   }
 };
 
-
-// Does not work
-// if (process.env.NODE_ENV === 'test') {
-//   exports.__test__ = { objectiveFunctionMZC };
-//   console.log('balbla')
-// }
-// Alternative, but not good for production code
+// Fix over-zealous exports just for testing.
 export { adaptiveGradientDescent, gradientDescent, objectiveFunctionMZC, gradient }
-
-// Production code should only export these
-// export { adaptiveGradientDescent, gradientDescent }
