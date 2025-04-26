@@ -36,7 +36,7 @@ export function areConcentric(circle1, circle2) {
 }
 
 /**
- * Computes the mean of a set of points
+ * Computes the mean of a set of points.
  *
  * @param {Array<Array<number>>} points - The set of 2D points.
  * @returns {Array<number>} - The mean of the points
