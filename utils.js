@@ -147,8 +147,29 @@ export function getInitialSolution(points, circleType, leastSquaresCircle, conve
     
     return { radius: radius, center: [center[0], center[1]] };
   } else if (circleType === "MCC") {
-    // Find the point farthest from the origin and use that as the radius of a circle centered at (0, 0) for the initial solution.
-    return { radius: findFarthestPoint(points, [0, 0]).distance, center: [0, 0] };
+    // For MCC (Minimum Circumscribed Circle), we want an initial circle that covers all points.
+    // A simple strategy is:
+    // 1. Find the axis-aligned bounding box (AABB) of the points.
+    // 2. Use the center of the bounding box as the initial circle center.
+    // 3. Set the radius to the maximum distance from this center to any point (plus a small epsilon).
+    //
+    // This guarantees:
+    // - All points are initially enclosed.
+    // - The radius is finite and reasonably tight (no infinity or absurdly large values).
+    // - A good neutral starting point for gradient descent optimization.
+    const xs = points.map(p => p[0]);
+    const ys = points.map(p => p[1]);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    const maxDist = Math.max(...points.map(([px, py]) => Math.hypot(px - centerX, py - centerY)));
+
+    return { radius: maxDist + 1e-6, center: [centerX, centerY] };
   } else if (circleType === "MZC") {
     // Former suggestion: Use the MIC initial guess as the inner circle and the MCC guess as the outer circle. 
     // Current suggestion: Use the mean of the points of the convex hull. However, this does not take into account the points more in the interior of that convex hull which also affect the objective function

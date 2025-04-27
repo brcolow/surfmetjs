@@ -2,7 +2,7 @@ import { FFT } from './fft.js';
 import { transform } from './fft2.js';
 import { levenMarqFull } from './circlefit.js';
 import { simulatedAnnealing } from './simulated_annealing.js';
-import { adaptiveGradientDescent, gradientDescent } from './gradient_descent.js';
+import { adaptiveGradientDescent, gradientDescent, printCircleResult } from './gradient_descent.js';
 import * as Plotly from 'plotly.js-dist-min';
 import Chart from 'chart.js/auto';
 import nistData from './nist/cir2d22.ds';
@@ -409,21 +409,39 @@ readPointsFromURL(nistData)
       console.log(bruceForceMic);
       console.log(points);
 
-      console.log("Gradient descent best solution:");
-      console.log(gradientDescent(points, "MIC", leastSquaresCircle));
+      console.log("Gradient descent best solution for MIC:");
+      printCircleResult(gradientDescent(points, "MIC", leastSquaresCircle));
+      console.log("(Adaptive) gradient descent for MIC:");
+      printCircleResult(adaptiveGradientDescent(points, "MIC", leastSquaresCircle));
 
+      console.log("Gradient descent best solution for MCC:");
+      printCircleResult(gradientDescent(points, "MCC", leastSquaresCircle));
+      console.log("(Adaptive) gradient descent for MCC:");
+      printCircleResult(adaptiveGradientDescent(points, "MCC", leastSquaresCircle));
+
+      console.log("Gradient descent best solution for MZC:");
+      printCircleResult(gradientDescent(points, "MZC", leastSquaresCircle));
       console.log("(Adaptive) gradient descent for MZC:");
-      console.log(adaptiveGradientDescent(points, "MZC", leastSquaresCircle));
-      if (true) {
-        return;
-      }
-      // Subtract the LSC center from the points to center the point-cloud around the origin (0,0).
-      // const centeredPoints = points.slice().map(point => [point[0] - leastSquaresCircle.a, point[1] - leastSquaresCircle.b]);
+      printCircleResult(adaptiveGradientDescent(points, "MZC", leastSquaresCircle));
 
       // We should use the order of max radius - min radius to determine the stepSize for neighbors.
       const maxRadius = Math.sqrt(Math.max(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
       const minRadius = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
-      console.log("maxRadius - minRadius: " + (maxRadius - minRadius));
+      // console.log("maxRadius - minRadius: " + (maxRadius - minRadius));
+      let mic = simulatedAnnealing(points.slice(), "MIC", leastSquaresCircle, 1000, { type: 'logarithmic', rate: 0.1 }, 100, 20, 50, (maxRadius - minRadius) / 100);
+      console.log("Simulated annealing MIC (100 max iterations, 50 neighbor iterations):");
+      console.log(mic);
+
+      console.log("Gradient descent of SA solution: ");
+      printCircleResult(gradientDescent(points, "MIC", { a: mic.center[0], b: mic.center[1], r: mic.radius}));
+      if (true) {
+        return;
+      }
+
+      // Subtract the LSC center from the points to center the point-cloud around the origin (0,0).
+      // const centeredPoints = points.slice().map(point => [point[0] - leastSquaresCircle.a, point[1] - leastSquaresCircle.b]);
+
+
 
       console.log("NIST MIC: center = [-600.5093622580, -428.7134351928], radius = 169.4623601410");
       verifyMic(points, [-600.5093622669094, -428.713435109361], 169.46236020895796);
@@ -431,7 +449,7 @@ readPointsFromURL(nistData)
       timeStart = performance.now();
       let biggestMic = null;
       for (let i = 0; i < 10; i++) {
-        const mic = simulatedAnnealing(points.slice(), "MIC", leastSquaresCircle, 1000, { type: 'logarithmic', rate: 0.1 }, 10000, 20, 5000, (maxRadius - minRadius) / 100, true);
+        const mic = simulatedAnnealing(points.slice(), "MIC", leastSquaresCircle, 1000, { type: 'logarithmic', rate: 0.1 }, 10000, 20, 5000, (maxRadius - minRadius) / 100);
         if (biggestMic == null || mic.radius > biggestMic.radius) {
           biggestMic = mic;
           console.log("Gradient descent of SA solution: ");
