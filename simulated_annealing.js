@@ -15,11 +15,11 @@ import { areConcentric, computeConvexHull, distanceSquared, findFarthestPoint, f
  * @returns {Object} The best solution found as an Object: {center: [x, y], radius: r}
  */
 function simulatedAnnealing(points, circleType, initialEstimate, initialTemperature = 1000, coolingType = { type: 'logarithmic', rate: 0.1 }, maxIterations = 1000, equilibriumSteps = 20, maxNeighborIterations = 5000, stepSize) {
-  const convexHull = computeConvexHull(points);
-  const initialSolution = getInitialSolution(points, circleType, initialEstimate, convexHull);
+  const initialSolution = getInitialSolution(points, circleType, initialEstimate);
 
   let currentSolution = initialSolution;
   let bestSolution = initialSolution;
+  const convexHull = computeConvexHull(points);
   let currentEnergy = calculateEnergy(currentSolution, circleType, points, convexHull);
   let bestEnergy = currentEnergy;
 
@@ -53,7 +53,7 @@ function simulatedAnnealing(points, circleType, initialEstimate, initialTemperat
     }
 
     if (i + 1 === maxIterations) {
-      console.log("Reached max iterations: " + i);
+      console.log("Reached max iterations for SA: " + i);
     }
   }
 

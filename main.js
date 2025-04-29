@@ -2,7 +2,7 @@ import { FFT } from './fft.js';
 import { transform } from './fft2.js';
 import { levenMarqFull } from './circlefit.js';
 import { simulatedAnnealing } from './simulated_annealing.js';
-import { adaptiveGradientDescent, gradientDescent, printCircleResult } from './gradient_descent.js';
+import { adaptiveGradientDescent, getObjectiveFunction, gradientDescent, printCircleResult } from './gradient_descent.js';
 import * as Plotly from 'plotly.js-dist-min';
 import Chart from 'chart.js/auto';
 import nistData from './nist/cir2d22.ds';
@@ -391,6 +391,90 @@ function randomNormalDistribution(min, max) {
   return num;
 }
 
+/**
+ * Runs a full test: Simulated Annealing followed by Gradient Descent, with timing and clean logs.
+ * 
+ * @param {Array<Array<number>>} points - The 2D point cloud.
+ * @param {Array<Object>} results - The array to save the test result in.
+ * @param {Object} leastSquaresCircle - Initial circle estimate {a, b, r}.
+ * @param {string} coolingType - Type of cooling ("logarithmic", "linear", "exponential").
+ * @param {number} temperature - Initial SA temperature.
+ * @param {number} maxIterations - Maximum number of SA iterations.
+ * @param {number} neighborIterations - Neighbor moves per SA iteration.
+ * @param {number} neighborMoveScale - How much the neighbor moves per iteration.
+ */
+function runTest(points, results, leastSquaresCircle, coolingType, temperature, maxIterations, neighborIterations, neighborMoveScale) {
+  const description = `SA MIC (${maxIterations} max iters, ${neighborIterations} neighbor iters, ${coolingType} cooling, T0=${temperature})`;
+
+  const timeStart = performance.now();
+
+  const mic = simulatedAnnealing(
+    points.slice(),
+    "MIC",
+    leastSquaresCircle,
+    temperature,
+    { type: coolingType, rate: 0.1 },
+    maxIterations,
+    20,
+    neighborIterations,
+    neighborMoveScale
+  );
+
+  const elapsed = performance.now() - timeStart;
+
+  console.log(`${description} took ${elapsed.toFixed(2)} ms`);
+  console.log("SA Result:", mic);
+
+  const gdResult = gradientDescent(points, "MIC", {
+    a: mic.center[0],
+    b: mic.center[1],
+    r: mic.radius
+  });
+
+  console.log("GD Result after SA:");
+  printCircleResult(gdResult);
+
+  // Save full record
+  results.push({
+    coolingType,
+    temperature,
+    maxIterations,
+    neighborIterations,
+    elapsedMs: elapsed,
+    micResult: mic,
+    gdResult: gdResult
+  });
+}
+
+/**
+ * Computes the objective function value from a GD result (final optimized circle).
+ */
+function computeObjective(gdResult, points) {
+  const params = [gdResult.center[0], gdResult.center[1], gdResult.radius];
+  return getObjectiveFunction("MIC", params, points);
+}
+
+function findBestResult(results, points) {
+  if (results.length === 0) {
+    console.warn("No results to evaluate.");
+    return null;
+  }
+
+  let bestResult = results[0];
+  let bestObjective = computeObjective(bestResult.gdResult, points);
+
+  for (const result of results) {
+    const objective = computeObjective(result.gdResult, points);
+    if (objective < bestObjective) {
+      bestObjective = objective;
+      bestResult = result;
+    }
+  }
+
+  return bestResult;
+}
+
+
 // const url = "http://localhost:5000/nist/cir2d22.ds";
 readPointsFromURL(nistData)
   .then(points => {
@@ -399,15 +483,15 @@ readPointsFromURL(nistData)
       const curvePoints = getCurvePoints(points.flatMap(pair => pair), 0.5, 25, true);
       const curvePoints2 = getCurvePoints2(points.flatMap(pair => pair), 0.5, 25, true);
 
-      console.log(curvePoints);
-      console.log(curvePoints2);
       const leastSquaresCircle = levenMarqFull(points);
+      console.log("Least squares circle:");
+      console.log(leastSquaresCircle);
+
       let timeStart = performance.now();
       const bruceForceMic = bruteForceMic(points);
       console.log("Brute force time: " + (performance.now() - timeStart) + " milliseconds");
       console.log("Bruce force MIC:");
       console.log(bruceForceMic);
-      console.log(points);
 
       console.log("Gradient descent best solution for MIC:");
       printCircleResult(gradientDescent(points, "MIC", leastSquaresCircle));
@@ -428,20 +512,38 @@ readPointsFromURL(nistData)
       const maxRadius = Math.sqrt(Math.max(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
       const minRadius = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
       // console.log("maxRadius - minRadius: " + (maxRadius - minRadius));
-      let mic = simulatedAnnealing(points.slice(), "MIC", leastSquaresCircle, 1000, { type: 'logarithmic', rate: 0.1 }, 100, 20, 50, (maxRadius - minRadius) / 100);
-      console.log("Simulated annealing MIC (100 max iterations, 50 neighbor iterations):");
-      console.log(mic);
+      const coolingTypes = ["logarithmic", "linear", "exponential"];
+      const maxIterationsList = [100, 1000, 10000];
+      const neighborIterationsList = [50, 500, 5000];
+      const temperatures = [100, 1000, 10000];
+      const results = [];
 
-      console.log("Gradient descent of SA solution: ");
-      printCircleResult(gradientDescent(points, "MIC", { a: mic.center[0], b: mic.center[1], r: mic.radius}));
+      for (const temperature of temperatures) {
+        for (const maxIterations of maxIterationsList) {
+          for (const neighborIterations of neighborIterationsList) {
+            for (const coolingType of coolingTypes) {
+              runTest(points, results, leastSquaresCircle, coolingType, temperature, maxIterations, neighborIterations, (maxRadius - minRadius) / 100);
+            }
+          }
+        }
+      }
+
+      const best = findBestResult(results, points);
+
+      if (best) {
+        console.log("🌟 Best Result Found:");
+        console.log(`Cooling: ${best.coolingType}, Temp: ${best.temperature}, Max Iters: ${best.maxIterations}, Neighbor Iters: ${best.neighborIterations}`);
+        console.log(`Elapsed Time: ${best.elapsedMs.toFixed(2)} ms`);
+        console.log("Best MIC Circle:", best.gdResult);
+        console.log("Best Objective Value:", computeObjective(best.gdResult, points));
+      }
+
       if (true) {
         return;
       }
 
       // Subtract the LSC center from the points to center the point-cloud around the origin (0,0).
       // const centeredPoints = points.slice().map(point => [point[0] - leastSquaresCircle.a, point[1] - leastSquaresCircle.b]);
-
-
 
       console.log("NIST MIC: center = [-600.5093622580, -428.7134351928], radius = 169.4623601410");
       verifyMic(points, [-600.5093622669094, -428.713435109361], 169.46236020895796);

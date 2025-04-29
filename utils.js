@@ -43,8 +43,8 @@ export function areConcentric(circle1, circle2) {
 */
 export function mean(points) {
   let mean = points.reduce(([x, y], p) => [x + p[0], y + p[1]], [0, 0]);
-  mean[0] /=  points.length;
-  mean[1] /=  points.length;
+  mean[0] /= points.length;
+  mean[1] /= points.length;
   return mean;
 }
 
@@ -117,10 +117,9 @@ export function computeConvexHull(points) {
  * @param {Array<Array<number>>} points - The set of 2D points.
  * @param {string} circleType - The type of circle optimization ("MIC", "MCC", or "MZC").
  * @param {Object} leastSquaresCircle - The least-squares circle, with properties `a` and `b` for its center.
- * @param {Array<Array<number>>} convexHull - The convex hull of the points.
  * @returns {Object} - The initial solution, with format depending on `circleType`.
  */
-export function getInitialSolution(points, circleType, leastSquaresCircle, convexHull) {
+export function getInitialSolution(points, circleType, leastSquaresCircle) {
   if (circleType === "MIC") {
     const nearestPointDistance = findNearestPoint(points, [leastSquaresCircle.a, leastSquaresCircle.b]).distance;
     const maxRadius = Math.sqrt(Math.max(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
@@ -128,6 +127,7 @@ export function getInitialSolution(points, circleType, leastSquaresCircle, conve
 
     // We want to use the LSC center plus or minus a small amount to randomize the starting center. Go until we find one that is inside the convex hull of the point cloud.
     let center = [leastSquaresCircle.a + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000), leastSquaresCircle.b + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000)];
+    const convexHull = computeConvexHull(points);
     while (!isPointInPolygon(center, convexHull)) {
       center = [leastSquaresCircle.a + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000), leastSquaresCircle.b + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000)];
     }
@@ -144,7 +144,7 @@ export function getInitialSolution(points, circleType, leastSquaresCircle, conve
         return { radius: nearestPointDistance - 0.00001, center: [leastSquaresCircle.a, leastSquaresCircle.b] };
       }
     }
-    
+
     return { radius: radius, center: [center[0], center[1]] };
   } else if (circleType === "MCC") {
     // For MCC (Minimum Circumscribed Circle), we want an initial circle that covers all points.
@@ -169,33 +169,79 @@ export function getInitialSolution(points, circleType, leastSquaresCircle, conve
 
     const maxDist = Math.max(...points.map(([px, py]) => Math.hypot(px - centerX, py - centerY)));
 
-    return { radius: maxDist + 1e-6, center: [centerX, centerY] };
+    return { radius: maxDist - 1e-6, center: [centerX, centerY] };
   } else if (circleType === "MZC") {
-    // Former suggestion: Use the MIC initial guess as the inner circle and the MCC guess as the outer circle. 
-    // Current suggestion: Use the mean of the points of the convex hull. However, this does not take into account the points more in the interior of that convex hull which also affect the objective function
-    // Thus, invert the points at the unit circle around that mean (swapping points closer to the mean to points farther away from the mean), compute the convex hull of these inverted points and translate them back to the initial coordinate system.
-
-    // Need to refactor: This function gets `convexHull` passed.
-    // However, the `outerConvexHull` (as well as the `innerConvexHull`) is computed within this function. Therefore, `convexHull` is ignored (at least in the "MZC" case) and this feels weird. 
-
+    // Balance outer and inner points influence
+    // Compute outer convex hull
     const outerConvexHull = computeConvexHull(points);
-    const meanOuterPoints = mean(outerConvexHull);
-    const pointsInverted = invertAtUnitCircle(points, meanOuterPoints);
-    const invertedInnerConvexHull = computeConvexHull(pointsInverted);
-    const innerConvexHull = invertAtUnitCircle(invertedInnerConvexHull, meanOuterPoints);
+
+    // Compute weighted mean: outer hull points (weight 2), inner points (weight 1)
+    const weights = new Array(points.length).fill(1);
+    const outerPointSet = new Set(outerConvexHull.map(pt => pt.toString()));
+    points.forEach((pt, i) => {
+      if (outerPointSet.has(pt.toString())) {
+        weights[i] = 2;
+      }
+    });
+
+    const weightedMean = meanWeighted(points, weights);
+    // Invert all points around weighted mean with normalized inversion
+    const pointsInverted = invertAtUnitCircleNormalized(points, weightedMean);
+    // Compute convex hull of inverted points
+    const invertedInnerHull = computeConvexHull(pointsInverted);
+    // Invert back to original coordinate system
+    const innerConvexHull = invertAtUnitCircleNormalized(invertedInnerHull, weightedMean);
     const meanInnerPoints = mean(innerConvexHull);
 
-    return { 
-      outerCircle: { 
-        radius: findFarthestPoint(outerConvexHull, meanOuterPoints).distance, 
-        center: meanOuterPoints 
-      }, 
-      innerCircle: { 
-        radius: findNearestPoint(innerConvexHull, meanInnerPoints).distance, 
-        center: meanInnerPoints
-      } 
+    return {
+      outerCircle: {
+        center: weightedMean,
+        radius: findFarthestPoint(points, weightedMean).distance
+      },
+      innerCircle: {
+        center: meanInnerPoints,
+        radius: findNearestPoint(points, meanInnerPoints).distance
+      }
     };
   }
+}
+
+/**
+ * Computes the weighted mean (centroid) of a set of 2D points.
+ * 
+ * @param {Array<Array<number>>} points - Array of points [[x1, y1], [x2, y2], ...].
+ * @param {Array<number>} weights - Array of weights corresponding to each point.
+ * @returns {Array<number>} The weighted mean [x, y].
+ */
+function meanWeighted(points, weights) {
+  let sumX = 0, sumY = 0, sumW = 0;
+  for (let i = 0; i < points.length; i++) {
+    sumX += points[i][0] * weights[i];
+    sumY += points[i][1] * weights[i];
+    sumW += weights[i];
+  }
+  return [sumX / sumW, sumY / sumW];
+}
+
+/**
+ * Inverts a set of 2D points relative to a given center using normalized inversion.
+ * 
+ * Each point is mapped such that points closer to the center are pushed farther away,
+ * and points farther from the center are pulled closer, using a 1/distance² scaling.
+ * 
+ * @param {Array<Array<number>>} points - Array of points [[x1, y1], [x2, y2], ...].
+ * @param {Array<number>} center - The center [x, y] to invert points around.
+ * @returns {Array<Array<number>>} Array of inverted points.
+ */
+function invertAtUnitCircleNormalized(points, center) {
+  return points.map(p => {
+    const dx = p[0] - center[0];
+    const dy = p[1] - center[1];
+    const dist = Math.hypot(dx, dy);
+    if (dist === 0) return [center[0], center[1]]; // Avoid division by zero
+    const factor = 1 / (dist * dist); // Normalized inversion
+    return [center[0] + dx * factor, center[1] + dy * factor];
+  });
 }
 
 /**
