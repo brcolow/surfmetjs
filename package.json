@@ -17,13 +17,13 @@
 	"author": "Michael Ennen (brcolow)",
 	"license": "MIT",
 	"dependencies": {
-		"chart.js": "^4.4.3",
+		"chart.js": "^4.4.9",
 		"d3-shape": "^3.2.0",
-		"mathjs": "^13.0.3",
-		"plotly.js-dist-min": "^2.34.0"
+		"mathjs": "^14.4.0",
+		"plotly.js-dist-min": "^3.0.1"
 	},
 	"devDependencies": {
-		"vite": "^5.4.1",
+		"vite": "^6.3.3",
 		"vitest": "^3.1.2"
 	}
 }
