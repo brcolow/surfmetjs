@@ -1,8 +1,28 @@
 import cvxpy as cp
 import numpy as np
+from scipy.spatial import ConvexHull
 import matplotlib.pyplot as plt
 import dccp
 
+def plot_mic(points, result):
+    points = np.array(points)
+    center = result["center"]
+    radius = result["radius"]
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Plot points
+    ax.scatter(points[:, 0], points[:, 1], color='blue', label='Points')
+
+    # Plot center and circle
+    ax.plot(center[0], center[1], 'ko', label='Center')
+    circle = plt.Circle(center, radius, color='green', fill=False, linewidth=2, label='MIC')
+    ax.add_patch(circle)
+
+    ax.set_aspect('equal')
+    ax.set_title("Maximum Inscribed Circle (MIC)")
+    plt.grid(True)
+    plt.show()
 
 def plot_mzc(points, result):
     points = np.array(points)
@@ -34,6 +54,34 @@ def plot_mzc(points, result):
     #plt.ylabel("Y")
     plt.show()
 
+def solve_mic(points):
+    points = np.array(points)
+    n = len(points)
+
+    c = cp.Variable(2)  # center (x, y)
+    r = cp.Variable()   # radius
+
+    constraints = [r >= 0]
+
+    for i in range(n):
+        p0 = points[i]
+        p1 = points[(i + 1) % n]  # wrap around
+        edge = p1 - p0
+        edge_length = np.linalg.norm(edge)
+
+        # Outward normal vector
+        normal = np.array([edge[1], -edge[0]]) / edge_length
+
+        # Constraint: center must be at least r away from each edge
+        midpoint = (p0 + p1) / 2
+        offset = normal @ (c - p0)
+        constraints.append(offset + r <= 0)  # c must be inside edge, at least r inside
+
+    # Solve
+    prob = cp.Problem(cp.Maximize(r), constraints)
+    prob.solve()
+
+    return {"center": c.value, "radius": r.value}
 
 def solve_mzc(points):
     points = np.array(points)
@@ -436,7 +484,9 @@ nist_cir_data_2 = np.array([[-605.26558,-259.31783,381.29524],
 [-602.3085,-259.26062,381.29524]])
 
 xy_nist_data = nist_cir_data_2[:, :2]
-result = solve_mzc(xy_nist_data)
-print(result)
-print("Roundness: " + str(result["radius_outer"] - result["radius_inner"]))
-plot_mzc(xy_nist_data, result)
+# result = solve_mzc(xy_nist_data)
+mic_result = solve_mic(xy_nist_data)
+print(mic_result)
+# print("Roundness: " + str(result["radius_outer"] - result["radius_inner"]))
+plot_mic(xy_nist_data, mic_result)
+# plot_mzc(xy_nist_data, result)

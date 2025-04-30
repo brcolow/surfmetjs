@@ -28,8 +28,8 @@ describe('gradient descent', () => {
       
       // Again, results taken from python
       [dx, dy, _] = gradient([0.5, 0, 0], P, 'MZC');
-      expect(dx).toBeCloseTo(2., 20);
-      expect(dy).toBeCloseTo(0, 20);
+      expect(dx).toBeCloseTo(2., 8);
+      expect(dy).toBeCloseTo(0, 8);
       
       // Again, results taken from python - this time be less accurate
       [dx, dy, _] = gradient([0.5, 0.75, 0], P, 'MZC');

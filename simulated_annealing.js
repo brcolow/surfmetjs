@@ -23,9 +23,6 @@ function simulatedAnnealing(points, circleType, initialEstimate, initialTemperat
   let currentEnergy = calculateEnergy(currentSolution, circleType, points, convexHull);
   let bestEnergy = currentEnergy;
 
-  const minTemperature = 1e-5;
-  let didRefine = false;
-
   for (let i = 0; i < maxIterations; i++) {
     const temperature = temperatureSchedule(initialTemperature, i, coolingType);
     const adaptiveStepSize = stepSize * temperature;
@@ -39,7 +36,7 @@ function simulatedAnnealing(points, circleType, initialEstimate, initialTemperat
       const newEnergy = calculateEnergy(neighbor, circleType, points, convexHull);
       const deltaEnergy = newEnergy - currentEnergy;
 
-      const accept = deltaEnergy < 0 || Math.exp(-deltaEnergy / Math.max(temperature, minTemperature)) > Math.random();
+      const accept = deltaEnergy < 0;
 
       if (accept) {
         currentSolution = neighbor;

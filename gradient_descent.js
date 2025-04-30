@@ -5,21 +5,16 @@ import {
 } from './utils.js';
 
 /**
- * Performs gradient descent with a small fixed manual step followed by Armijo-Wolfe line search.
+ * Performs gradient descent to optimize the circle parameters.
  * 
- * Stops when:
- * - Gradient norm becomes small (true convergence),
- * - Maximum number of iterations is reached.
- *
- * @param {Array<Array<number>>} points - 2D points.
- * @param {string} circleType - Circle type ("MIC", "MCC", or "MZC").
- * @param {Object} initialEstimate - Initial guess {a, b, r}.
- * @param {number} [learningRate=1e-11] - Small manual gradient step before line search.
- * @param {number} [maxIterations=1000] - Maximum number of iterations.
- * @param {number} [epsilon=1e-13] - Gradient norm threshold for convergence.
- * @returns {Object} Optimized result: {center: [x, y], radius: r}.
+ * @param {Array<Array<number>>} points - The list of points to evaluate.
+ * @param {string} circleType - The type of circle ("MIC", "MCC", or "MZC").
+ * @param {Object} initialEstimate - Initial estimate of the circle parameters.
+ * @param {number} [learningRate=1e-11] - The step size for gradient updates.
+ * @param {number} [maxIterations=1000] - The maximum number of iterations.
+ * @returns {Object} The best solution found as an Object: {center: [x, y], radius: r}
  */
-function gradientDescent(points, circleType, initialEstimate, learningRate = 1e-11, maxIterations = 1000, epsilon = 1e-13) {
+function gradientDescent(points, circleType, initialEstimate, learningRate = 0.00000000001, maxIterations = 1000) {
   let params;
   if (circleType === "MZC") {
     const initialSolution = getInitialSolution(points, circleType, initialEstimate);
@@ -33,19 +28,21 @@ function gradientDescent(points, circleType, initialEstimate, learningRate = 1e-
     params = [initialSolution.center[0], initialSolution.center[1], initialSolution.radius];
   }
 
+  let previousObjective = Infinity;
+  let previousParams = params;
   for (let i = 0; i < maxIterations; i++) {
-    const grad = gradient(params, points, circleType);
-
-    const gradNormSquared = grad.reduce((sum, g) => sum + g * g, 0);
-    if (gradNormSquared < epsilon) {
-      console.log(`Converged: small gradient norm at iteration ${i}`);
+    const grad = gradient2(params, points, circleType);
+    params = params.map((p, i) => p - learningRate * grad[i]);
+    const currentObjective = getObjectiveFunction(circleType, params, points);
+    // console.log(`Iteration ${i}: Objective value: ${currentObjective}`);
+    if (currentObjective > previousObjective) {
+      console.log("Objective function increased, stopping at iteration: " + i);
+      params = previousParams;
       break;
     }
-
-    params = lineSearchArmijoWolfe(params, grad, points, circleType);
+    previousParams = params;
+    previousObjective = currentObjective;
   }
-
-  printGradientDescentSummary(params, points, circleType);
 
   if (circleType === "MZC") {
     return computeMZCResult([params[0], params[1]], points);
@@ -57,21 +54,65 @@ function gradientDescent(points, circleType, initialEstimate, learningRate = 1e-
 }
 
 /**
- * Performs fully adaptive gradient descent using Armijo-Wolfe line search.
+ * Performs a gradient descent with adaptive learning rate (backtracking line search).
  * 
- * Stops when:
- * - Gradient norm becomes small (true convergence),
- * - Maximum number of iterations is reached.
- *
- * @param {Array<Array<number>>} points - 2D points.
- * @param {string} circleType - Circle type ("MIC", "MCC", or "MZC").
- * @param {Object} initialEstimate - Initial guess {a, b, r}.
- * @param {number} [gamma=200] - Smoothing factor (only needed for MZC).
- * @param {number} [maxIterations=1000] - Maximum number of iterations.
- * @param {number} [epsilon=1e-13] - Gradient norm threshold for convergence.
- * @returns {Object} Optimized result: {center: [x, y], radius: r}.
+ * @param {Array<Array<number>>} points - The list of points to evaluate.
+ * @param {string} circleType - The type of circle ("MIC", "MCC", or "MZC").
+ * @param {Object} initialEstimate - Initial estimate of the circle parameters.
+ * @param {number} [gamma=200] - The approximation parameter to simulate max-min functions with log-sum-exp (default: 200)
+ * @param {number} [learningRateDecay=0.75] - The decay factor for the learning rate.
+ * @param {number} [slopeDamper=0.25] - The damping factor for the slope at the current point.
+ * @param {number} [maxIterations=1000] - The maximum number of iterations.
+ * @param {number} [maxIterationsLineSearch=100] - The maximum number of (inner) iterations during line searchs.
+ * @param {number} [epsilon=1e-8] - Stop if the gradient norm is below epsilon.
+ * @returns {Object} The best solution found as an Object: {center: [x, y], radius: r}
  */
-function adaptiveGradientDescent(points, circleType, initialEstimate, gamma = 200, maxIterations = 1000, epsilon = 1e-13) {
+function adaptiveGradientDescent(points, circleType, initialEstimate, gamma = 200, learningRateDecay = 0.75, slopeDamper = 0.25, maxIterations = 1000, maxIterationsLineSearch = 100, epsilon = 1e-8) {
+  let params;
+  if (circleType === "MZC") {
+    const initialSolution = getInitialSolution(points, circleType, initialEstimate);
+    params = [
+      (initialSolution.outerCircle.center[0] + initialSolution.innerCircle.center[0]) / 2,
+      (initialSolution.outerCircle.center[1] + initialSolution.outerCircle.center[1]) / 2
+    ];
+  } else {
+    const initialSolution = getInitialSolution(points, circleType, initialEstimate);
+    params = [initialSolution.center[0], initialSolution.center[1], initialSolution.radius];
+  }
+
+  for (let i = 0; i < maxIterations; i++) {
+    const grad = gradient(params, points, circleType, 100, gamma);
+    if (grad[0] ** 2 + grad[1] ** 2 < epsilon) {
+      console.log("Stopping gradient descent due to small gradient.");
+      break;
+    }
+    const dampedSlope = slopeDamper * (grad[0] ** 2 + grad[1] ** 2);
+    let t = 1.0; // Line search parameter
+    const objective = getObjectiveFunction(circleType, params, points, gamma);
+    for (let j = 0; j < maxIterationsLineSearch; j++) {
+      let paramsT = params.map((p, i) => p - t * grad[i]);
+      let objectiveT = getObjectiveFunction(circleType, paramsT, points, gamma);
+      if (objectiveT < objective - t * dampedSlope) {
+        params = paramsT;
+        break; // Accept backtracked params - t * grad
+      } else {
+        t *= learningRateDecay; // scale down the steplength
+      }
+    }
+  }
+
+  printGradientDescentSummary(params, points, circleType, gamma);
+
+  if (circleType === "MZC") {
+    return computeMZCResult([params[0], params[1]], points);
+  } else if (circleType === "MIC") {
+    return computeMICResult([params[0], params[1]], params[2], points);
+  } else if (circleType === "MCC") {
+    return computeMCCResult([params[0], params[1]], params[2], points);
+  }
+}
+
+function armijoWolfeGradientDescent(points, circleType, initialEstimate, gamma = 200, maxIterations = 1000, epsilon = 1e-16) {
   let params;
   if (circleType === "MZC") {
     const initialSolution = getInitialSolution(points, circleType, initialEstimate);
@@ -143,7 +184,7 @@ function printGradientDescentSummary(params, points, circleType, gamma = 200) {
  * @param {number} [maxLineSearchIterations=100] - Maximum number of attempts to calculate new params.
  * @returns {Array<number>} New parameters after a good step.
  */
-function lineSearchArmijoWolfe(params, grad, points, circleType, initialStepSize = 1.0, c1 = 1e-4, c2 = 0.9, maxLineSearchIterations = 100) {
+function lineSearchArmijoWolfe(params, grad, points, circleType, initialStepSize = 1.0, c1 = 1e-4, c2 = 0.9, maxLineSearchIterations = 500) {
   let stepSize = initialStepSize;
   const currentObjective = getObjectiveFunction(circleType, params, points);
   const gradDot = grad.reduce((sum, g) => sum + g * g, 0); // ||grad||^2
@@ -170,7 +211,7 @@ function lineSearchArmijoWolfe(params, grad, points, circleType, initialStepSize
 
     attempts++;
 
-    if (stepSize < 1e-12 || attempts > maxLineSearchIterations) {
+    if (stepSize < 1e-15 || attempts > maxLineSearchIterations) {
       console.warn("Line search failed: step size too small or too many iterations, returning original params.");
       return params; // Abort line search
     }
@@ -274,66 +315,6 @@ function objectiveFunctionMZCSmooth(params, points, gamma = 200) {
 }
 
 /**
- * Computes the gradient of the objective function for a given circle type.
- * The gradient is used to iteratively adjust the circle parameters to optimize the objective.
- * 
- * @param {Array<number>} params - The current circle parameters [x, y, r].
- * @param {Array<Array<number>>} points - The list of points to evaluate.
- * @param {string} circleType - The type of circle ("MIC", "MCC", or "MZC").
- * @param {number} penalty - The penalty factor for invalid configurations (default: 100).
- * @param {number} [gamma=200] - The approximation parameter to simulate max-min functions with log-sum-exp (default: 200). Remark: This parameter is only needed for the mzc gradient. Maybe refactor code?
- * @returns {Array<number>} The gradient [dx, dy, dr] for x, y, and r respectively.
- */
-/*
-function gradient(params, points, circleType, penalty = 100, gamma = 200) {
-  const [x, y, r] = params;
-  let dx = 0, dy = 0, dr = 0;
-
-  if (circleType === "MZC") {
-    const radii = [];
-    let rMin = Infinity;
-    let rMax = -Infinity;
-    
-    for (const [px, py] of points) {
-      const ri = Math.sqrt(distanceSquared([px, py], [x, y]));
-      radii.push(ri);
-      if (ri < rMin) rMin = ri;
-      if (ri > rMax) rMax = ri;
-    }
-    const expPos = radii.map(r => Math.exp(gamma * (r - rMax)));
-    const expNeg = radii.map(r => Math.exp(gamma * (rMin - r)));
-
-    const sumExpPos = expPos.reduce((sum, ep) => ep + sum, 0);
-    const sumExpNeg = expNeg.reduce((sum, en) => en + sum, 0);
-
-    const weights = radii.map((r, i) => (expPos[i] / sumExpPos - expNeg[i] / sumExpNeg) / r);
-
-    dx = -weights.reduce((sum, w, i) => sum + w * (points[i][0] - x), 0);
-    dy = -weights.reduce((sum, w, i) => sum + w * (points[i][1] - y), 0);
-  } else {
-    for (const point of points) {
-      const [px, py] = point;
-      const dist = Math.sqrt(distanceSquared(point, [x, y]));
-
-      if (circleType === "MIC" && dist < r) {
-        const factor = penalty * (r - dist) / (dist + 1e-9);
-        dx += (x - px) * factor;
-        dy += (y - py) * factor;
-        dr -= factor;
-      } else if (circleType === "MCC" && dist > r) {
-        const factor = penalty * (dist - r) / (dist + 1e-9);
-        dx += (x - px) * factor;
-        dy += (y - py) * factor;
-        dr += factor;
-      }
-    }
-  }
-
-  return [dx, dy, dr];
-}
-*/
-
-/**
  * Computes the gradient of the objective function for a given circle type (MIC, MCC, or MZC),
  * using smooth approximations to ensure continuous behavior near constraint boundaries.
  *
@@ -390,6 +371,64 @@ function gradient(params, points, circleType, penalty = 100, gamma = 200) {
     }
   }
 
+  return [dx, dy, dr];
+}
+
+/**
+ * Computes the gradient of the objective function for a given circle type.
+ * The gradient is used to iteratively adjust the circle parameters to optimize the objective.
+ * 
+ * @param {Array<number>} params - The current circle parameters [x, y, r].
+ * @param {Array<Array<number>>} points - The list of points to evaluate.
+ * @param {string} circleType - The type of circle ("MIC", "MCC", or "MZC").
+ * @param {number} penalty - The penalty factor for invalid configurations (default: 100).
+ * @param {number} [gamma=200] - The approximation parameter to simulate max-min functions with log-sum-exp (default: 200). Remark: This parameter is only needed for the mzc gradient. Maybe refactor code?
+ * @returns {Array<number>} The gradient [dx, dy, dr] for x, y, and r respectively.
+ */
+function gradient2(params, points, circleType, penalty = 100, gamma = 200) {
+  const [x, y, r] = params;
+
+  let dx = 0, dy = 0, dr = 0;
+
+  if (circleType === "MZC") {
+    const radii = [];
+
+    let rMin = Infinity;
+    let rMax = -Infinity;
+
+    for (const [px, py] of points) {
+      const ri = Math.sqrt(distanceSquared([px, py], [x, y]));
+      radii.push(ri);
+      if (ri < rMin) rMin = ri;
+      if (ri > rMax) rMax = ri;
+    }
+
+    const expPos = radii.map(r => Math.exp(gamma * (r - rMax)));
+    const expNeg = radii.map(r => Math.exp(gamma * (rMin - r)));
+    const sumExpPos = expPos.reduce((sum, ep) => ep + sum, 0);
+    const sumExpNeg = expNeg.reduce((sum, en) => en + sum, 0);
+    const weights = radii.map((r, i) => (expPos[i] / sumExpPos - expNeg[i] / sumExpNeg) / r);
+    dx = -weights.reduce((sum, w, i) => sum + w * (points[i][0] - x), 0);
+    dy = -weights.reduce((sum, w, i) => sum + w * (points[i][1] - y), 0);
+
+  } else {
+    for (const point of points) {
+      const [px, py] = point;
+      const dist = Math.sqrt(distanceSquared(point, [x, y]));
+
+      if (circleType === "MIC" && dist < r) {
+        const factor = penalty * (r - dist) / (dist + 1e-9);
+        dx += (x - px) * factor;
+        dy += (y - py) * factor;
+        dr -= factor;
+      } else if (circleType === "MCC" && dist > r) {
+        const factor = penalty * (dist - r) / (dist + 1e-9);
+        dx += (x - px) * factor;
+        dy += (y - py) * factor;
+        dr += factor;
+      }
+    }
+  }
   return [dx, dy, dr];
 }
 
@@ -532,7 +571,7 @@ function printCircleResult(result) {
     console.log(`Radius: ${result.radius.toFixed(10)}`);
     console.log(`Roundness: ${result.roundness.toFixed(10)}`);
   } else {
-    console.log("Unknown result format.");
+    console.log("Unknown result format: " + result.radius);
   }
 }
 

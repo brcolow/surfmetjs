@@ -7,7 +7,7 @@ import * as Plotly from 'plotly.js-dist-min';
 import Chart from 'chart.js/auto';
 import nistData from './nist/cir2d22.ds';
 import { getCurvePoints, getCurvePoints2 } from './cardinal_spline.js';
-import { distanceSquared } from './utils.js';
+import { distanceSquared, getRandomBetween } from './utils.js';
 
 // const roundnessData = generateRandomRoundnessProfile(numPoints, minRadius, maxRadius);
 
@@ -398,26 +398,29 @@ function randomNormalDistribution(min, max) {
  * @param {Array<Object>} results - The array to save the test result in.
  * @param {Object} leastSquaresCircle - Initial circle estimate {a, b, r}.
  * @param {string} coolingType - Type of cooling ("logarithmic", "linear", "exponential").
+ * @param {number} coolingRate - The rate of cooling.
  * @param {number} temperature - Initial SA temperature.
  * @param {number} maxIterations - Maximum number of SA iterations.
  * @param {number} neighborIterations - Neighbor moves per SA iteration.
  * @param {number} neighborMoveScale - How much the neighbor moves per iteration.
  */
-function runTest(points, results, leastSquaresCircle, coolingType, temperature, maxIterations, neighborIterations, neighborMoveScale) {
-  const description = `SA MIC (${maxIterations} max iters, ${neighborIterations} neighbor iters, ${coolingType} cooling, T0=${temperature})`;
+function runTest(points, results, leastSquaresCircle, coolingType, coolingRate, temperature, maxIterations, neighborIterations, neighborMoveScale) {
+  const description = `SA MIC (${maxIterations} max iters, ${neighborIterations} neighbor iters, ${coolingType} cooling at ${coolingRate} rate, T0=${temperature}, neighborMoveScale = ${neighborMoveScale})`;
 
   const timeStart = performance.now();
 
+  const maxRadius = Math.sqrt(Math.max(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
+  const minRadius = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
   const mic = simulatedAnnealing(
     points.slice(),
     "MIC",
     leastSquaresCircle,
     temperature,
-    { type: coolingType, rate: 0.1 },
+    { type: coolingType, rate: coolingRate },
     maxIterations,
     20,
     neighborIterations,
-    neighborMoveScale
+    (maxRadius - minRadius) / neighborMoveScale
   );
 
   const elapsed = performance.now() - timeStart;
@@ -437,9 +440,11 @@ function runTest(points, results, leastSquaresCircle, coolingType, temperature, 
   // Save full record
   results.push({
     coolingType,
+    coolingRate,
     temperature,
     maxIterations,
     neighborIterations,
+    neighborMoveScale,
     elapsedMs: elapsed,
     micResult: mic,
     gdResult: gdResult
@@ -513,26 +518,35 @@ readPointsFromURL(nistData)
       const minRadius = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
       // console.log("maxRadius - minRadius: " + (maxRadius - minRadius));
       const coolingTypes = ["logarithmic", "linear", "exponential"];
-      const maxIterationsList = [100, 1000, 10000];
-      const neighborIterationsList = [50, 500, 5000];
-      const temperatures = [100, 1000, 10000];
+      const coolingRates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7];
+      const maxIterationsList = [1000];
+      const neighborIterationsList = [1000, 10000];
+      const temperatures = [1000, 10000, 100000, 1000000];
       const results = [];
 
+      for (let i = 0; i < 100; i++) {
+        runTest(points, results, leastSquaresCircle, coolingTypes.at(coolingTypes.length * Math.random()), Math.random(), getRandomBetween(1, 100000), getRandomBetween(10, 5000), getRandomBetween(10, 5000), getRandomBetween(1, 10000));
+      }
+
+      /*
       for (const temperature of temperatures) {
         for (const maxIterations of maxIterationsList) {
           for (const neighborIterations of neighborIterationsList) {
             for (const coolingType of coolingTypes) {
-              runTest(points, results, leastSquaresCircle, coolingType, temperature, maxIterations, neighborIterations, (maxRadius - minRadius) / 100);
+              for (const coolingRate of coolingRates) {
+                runTest(points, results, leastSquaresCircle, coolingType, coolingRate, temperature, maxIterations, neighborIterations, 100);
+              }
             }
           }
         }
       }
+      */
 
       const best = findBestResult(results, points);
 
       if (best) {
         console.log("🌟 Best Result Found:");
-        console.log(`Cooling: ${best.coolingType}, Temp: ${best.temperature}, Max Iters: ${best.maxIterations}, Neighbor Iters: ${best.neighborIterations}`);
+        console.log(`Cooling: ${best.coolingType}, Rate: ${best.coolingRate} Temp: ${best.temperature}, Max Iters: ${best.maxIterations}, Neighbor Iters: ${best.neighborIterations}, Neighbor Move Scale = ${best.neighborMoveScale}`);
         console.log(`Elapsed Time: ${best.elapsedMs.toFixed(2)} ms`);
         console.log("Best MIC Circle:", best.gdResult);
         console.log("Best Objective Value:", computeObjective(best.gdResult, points));

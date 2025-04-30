@@ -121,31 +121,70 @@ export function computeConvexHull(points) {
  */
 export function getInitialSolution(points, circleType, leastSquaresCircle) {
   if (circleType === "MIC") {
-    const nearestPointDistance = findNearestPoint(points, [leastSquaresCircle.a, leastSquaresCircle.b]).distance;
-    const maxRadius = Math.sqrt(Math.max(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
-    const minRadius = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
-
-    // We want to use the LSC center plus or minus a small amount to randomize the starting center. Go until we find one that is inside the convex hull of the point cloud.
-    let center = [leastSquaresCircle.a + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000), leastSquaresCircle.b + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000)];
     const convexHull = computeConvexHull(points);
-    while (!isPointInPolygon(center, convexHull)) {
-      center = [leastSquaresCircle.a + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000), leastSquaresCircle.b + getRandomBetween(-(maxRadius - minRadius) / 10000, (maxRadius - minRadius) / 10000)];
+
+    const distancesSquared = points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]));
+    const maxRadius = Math.sqrt(Math.max(...distancesSquared));
+    const minRadius = Math.sqrt(Math.min(...distancesSquared));
+    const radiusRange = (maxRadius - minRadius) / 10000;
+    
+    function randomizeCenter() {
+      return [
+        leastSquaresCircle.a + getRandomBetween(-radiusRange, radiusRange),
+        leastSquaresCircle.b + getRandomBetween(-radiusRange, radiusRange),
+      ];
     }
-
-    // We want to use the radius corresponding to the distance from the LSC center to the nearest point in the point cloud, plus or minus a small amount. Go until we find one such that no points are (strictly) inside the initial solution circle.
-    let radius = nearestPointDistance + getRandomBetween(-(maxRadius - minRadius) / 10000, 0);
-    let tries = 0;
-    while (!noPointsStrictlyInside(points, center, radius)) {
-      radius = nearestPointDistance + getRandomBetween(-(maxRadius - minRadius) / 10000, 0);
-      tries++;
-
-      if (tries > 1000) {
-        console.log("We could not find a suitable radius for the center even after 1000 tries!");
-        return { radius: nearestPointDistance - 0.00001, center: [leastSquaresCircle.a, leastSquaresCircle.b] };
+  
+    // Try multiple random centers
+    const NUM_CANDIDATES = 20;
+    let bestCenter = [leastSquaresCircle.a, leastSquaresCircle.b];
+    let bestMinDistance = 0;
+  
+    for (let i = 0; i < NUM_CANDIDATES; i++) {
+      let center = randomizeCenter();
+      let centerTries = 0;
+      while (!isPointInPolygon(center, convexHull)) {
+        center = randomizeCenter();
+        centerTries++;
+        if (centerTries > 1000) {
+          console.warn("Failed to find a center inside convex hull after 1000 tries.");
+          center = [leastSquaresCircle.a, leastSquaresCircle.b];
+          break;
+        }
+      }
+  
+      const minDist = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, center))));
+  
+      if (minDist > bestMinDistance) {
+        bestCenter = center;
+        bestMinDistance = minDist;
       }
     }
-
-    return { radius: radius, center: [center[0], center[1]] };
+  
+    let center = bestCenter;
+    let startingRadius = bestMinDistance;
+  
+    // Now binary search for the best radius
+    let low = minRadius;
+    let high = startingRadius;
+    let bestValidRadius = low; // Keep track of the best valid one found
+  
+    const MAX_BINARY_SEARCH_STEPS = 50; // 2^50 ≈ 1e15, plenty
+    for (let step = 0; step < MAX_BINARY_SEARCH_STEPS; step++) {
+      const mid = (low + high) / 2;
+      if (noPointsStrictlyInside(points, center, mid)) {
+        bestValidRadius = mid;
+        low = mid; // Try larger
+      } else {
+        high = mid; // Try smaller
+      }
+  
+      if (Math.abs(high - low) < 1e-8) {
+        break; // Precision good enough
+      }
+    }
+  
+    return { radius: bestValidRadius, center };
   } else if (circleType === "MCC") {
     // For MCC (Minimum Circumscribed Circle), we want an initial circle that covers all points.
     // A simple strategy is:
