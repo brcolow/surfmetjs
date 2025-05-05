@@ -52,34 +52,56 @@ function kasaFit(points) {
 }
 
 /**
- * Levenberg-Marquardt fit in the "full" (a, b, R) space.
- * 
- * Adapted from Java https://github.com/mdoube/BoneJ/blob/1c5a90873f5d2dda0294dabc9698f002670aa816/src/org/doube/geometry/FitCircle.java#L500
+ * Fits a circle to a set of 2D points using the Levenberg–Marquardt algorithm.
  *
- * @param points 2d array containing x,y points (double[n][2])
- * @param lambdaIni the initial value of lambda which controls the dampening - larger values means it's more like gradient descent. Defaults to 1.
- * @return circle object centered at (a, b) with radius r
+ * Adapted from Nikolai Chernov's original MATLAB script for geometric circle fitting
+ * using a damped Gauss–Newton method (Levenberg–Marquardt), via Michael Doube's Java port in BoneJ:
+ * https://github.com/mdoube/BoneJ/blob/1c5a90873f5d2dda0294dabc9698f002670aa816/src/org/doube/geometry/FitCircle.java
+ *
+ * Original publication:
+ * Al-Sharadqah & Chernov (2009). "Error analysis for circle fitting algorithms."
+ * Electronic Journal of Statistics, 3, 886–911. https://doi.org/10.1214/09-EJS419
+ *
+ * This function performs geometric total least squares (TLS) fitting — minimizing the
+ * orthogonal (Euclidean) distance from each point to the estimated circle.
+ * The algorithm uses a Levenberg–Marquardt iteration to optimize center (a, b) and radius r.
+ *
+ * @param {Array<Array<number>>} points - An array of [x, y] coordinate pairs.
+ * @param {number} [lambdaIni=1] - Initial damping parameter (higher = more gradient descent-like).
+ * @returns {{a: number, b: number, r: number}} Best-fit circle parameters (center and radius).
+ * 
+ * @see https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm
+ * @see https://en.wikipedia.org/wiki/Total_least_squares
+ * @see https://en.wikipedia.org/wiki/Circle_fitting
+ * @see https://github.com/mdoube/BoneJ/blob/1c5a90873f5d2dda0294dabc9698f002670aa816/src/org/doube/geometry/FitCircle.java#L500
  */
-function levenMarqFull(points, lambdaIni = 1) {
+function circleFitOrthogonal(points, lambdaIni = 1) {
   const nPoints = points.length;
   if (nPoints < 3) {
     throw new Error("Too few points: must have at least 3 but was: " + nPoints);
   }
+
+  // Initial guess using Kåsa method (algebraic OLS fit to x² + y² + Dx + Ey + F = 0).
+  // This is a fast linear approximation, but biased and not geometric.
+  // Used only to seed the nonlinear TLS refinement.
   const guess = kasaFit(points);
   let x = guess.a
   let y = guess.b;
   let r = guess.r;
   const par = [[x, y, r]];
-  let Par = matrix(par);
-  let ParTemp = matrix(par);
+  let Par = matrix(par);      // Current parameters
+  let ParTemp = matrix(par);  // Trial parameters
   const epsilon = 1e-6;
   let progress = epsilon;
   const iterMax = 50;
   let lambda_sqrt = Math.sqrt(lambdaIni);
 
-  let f = 0;
-  let j = twoDArray(nPoints + 3, 3);
-  let g = twoDArray(nPoints + 3, 1);
+  let f = 0; // Initial cost
+  let j = twoDArray(nPoints + 3, 3); // Jacobian
+  let g = twoDArray(nPoints + 3, 1); // Residuals
+
+  // Compute initial residuals and Jacobian.
+  // This matches the logic from Chernov’s `CurrentIteration` function in MATLAB.
   for (let i = 0; i < nPoints; i++) {
     const dX = points[i][0] - x;
     const dY = points[i][1] - y;
@@ -100,8 +122,18 @@ function levenMarqFull(points, lambdaIni = 1) {
 
   for (let iter = 0; iter < iterMax; iter++) {
     let safety = 0;
+
+    // Inner loop: adjust lambda to ensure improvement.
+    // Matches the "secondary loop" in Chernov’s original MATLAB (while (1)).
     while (safety < 100) {
       safety++;
+
+      // Reset fTemp before each inner safety iteration.
+      // In the original MATLAB, fTemp is recomputed from scratch each time.
+      // During porting, this reset was initially omitted, causing accumulation bugs.
+      fTemp = 0;
+
+      // Augment Jacobian and residuals with damping terms for LM step.
       J.set([nPoints, 0], lambda_sqrt);
       J.set([nPoints + 1, 1], lambda_sqrt);
       J.set([nPoints + 2, 2], lambda_sqrt);
@@ -109,15 +141,21 @@ function levenMarqFull(points, lambdaIni = 1) {
       G.set([nPoints + 1, 0], 0);
       G.set([nPoints + 2, 0], 0);
 
+      // Solve for update step ΔPar using pseudo-inverse (robust to non-square J).
+      // This is equivalent to solving (JᵀJ + λI) Δθ = Jᵀg.
       const DelPar = J.size()[0] === J.size()[1] ? multiply(inv(J), G) : multiply(pinv(J), G);
       progress = norm(DelPar, 'fro') / (norm(Par, 'fro') + epsilon);
       if (progress < epsilon) {
         break;
       }
+
+      // Trial update
       ParTemp = subtract(Par, transpose(DelPar));
       x = ParTemp.get([0, 0]);
       y = ParTemp.get([0, 1]);
       r = ParTemp.get([0, 2]);
+
+      // Recompute residuals and Jacobian for trial step.
       for (let i = 0; i < nPoints; i++) {
         const dX = points[i][0] - x;
         const dY = points[i][1] - y;
@@ -128,22 +166,32 @@ function levenMarqFull(points, lambdaIni = 1) {
         gTemp[i][0] = d - r;
         fTemp += (d - r) * (d - r);
       }
-      if (fTemp < f && ParTemp.get([0, 2]) > 0) {
+
+      // Accept update if it improves cost and radius remains valid.
+      if (fTemp < f && r > 0) {
         lambda_sqrt /= 2;
         break;
       }
+
+      // Otherwise, increase lambda and try again.
       lambda_sqrt *= 2;
       continue;
     }
     if (progress < epsilon) {
       break;
     }
+
+    // Accept the new parameters and update state
     Par = ParTemp;
     j = jTemp;
     g = gTemp;
     f = fTemp;
   }
-  return { "a": Par.get([0, 0]), "b": Par.get([0, 1]), "r": Par.get([0, 2]) };
+  return {
+    a: Par.get([0, 0]),
+    b: Par.get([0, 1]),
+    r: Par.get([0, 2]),
+  };
 }
 
 function twoDArray(rows, cols) {
@@ -155,4 +203,4 @@ function twoDArray(rows, cols) {
   return x;
 }
 
-export { levenMarqFull, kasaFit }
+export { circleFitOrthogonal, kasaFit }

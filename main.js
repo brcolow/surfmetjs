@@ -1,6 +1,6 @@
 import { FFT } from './fft.js';
 import { transform } from './fft2.js';
-import { levenMarqFull } from './circlefit.js';
+import { circleFitOrthogonal } from './circlefit.js';
 import { simulatedAnnealing } from './simulated_annealing.js';
 import { adaptiveGradientDescent, getObjectiveFunction, gradientDescent, printCircleResult } from './gradient_descent.js';
 import * as Plotly from 'plotly.js-dist-min';
@@ -488,7 +488,7 @@ readPointsFromURL(nistData)
       const curvePoints = getCurvePoints(points.flatMap(pair => pair), 0.5, 25, true);
       const curvePoints2 = getCurvePoints2(points.flatMap(pair => pair), 0.5, 25, true);
 
-      const leastSquaresCircle = levenMarqFull(points);
+      const leastSquaresCircle = circleFitOrthogonal(points);
       console.log("Least squares circle:");
       console.log(leastSquaresCircle);
 
@@ -525,7 +525,7 @@ readPointsFromURL(nistData)
       const results = [];
 
       for (let i = 0; i < 100; i++) {
-        runTest(points, results, leastSquaresCircle, coolingTypes.at(coolingTypes.length * Math.random()), Math.random(), getRandomBetween(1, 100000), getRandomBetween(10, 5000), getRandomBetween(10, 5000), getRandomBetween(1, 10000));
+        runTest(points, results, leastSquaresCircle, coolingTypes.at(coolingTypes.length * Math.random()), Math.random(), getRandomBetween(1, 100000), getRandomBetween(10, 8000), getRandomBetween(10, 8000), getRandomBetween(1, 100000));
       }
 
       /*
