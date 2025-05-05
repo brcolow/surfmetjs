@@ -115,9 +115,8 @@ All data points must lie **outside or on** the circle. The optimization maximize
 
 ---
 
-### **`RONp Pos` – Positive Peak Deviation**
-- **Definition**: The maximum positive deviation above the reference circle.
-- **Use case**: Useful for seeing how far the profile sticks out beyond the reference circle.
+### **`RONp Pos` – Peak Position**
+- **Definition**: The position (in degrees) of the largest positive peak.
 
 ---
 
@@ -127,10 +126,8 @@ All data points must lie **outside or on** the circle. The optimization maximize
 
 ---
 
-### **`RONv Pos` – Positive Valley Deviation**
-- **Definition**: The absolute value of the most negative deviation (i.e., how far inward the profile dips).
-- **Formula**: `RONv Pos = |RONv|`
-- **Note**: It's called "positive" because it's a positive number representing a depth.
+### **`RONv Pos` – Valley Position**
+- **Definition**: The position (in degrees) of the largest negative peak.
 
 ---
 
@@ -144,9 +141,7 @@ All data points must lie **outside or on** the circle. The optimization maximize
 |----------------|-----------------------------------------------------------------------------------------------|
 | `RONt`         | Max distance **outside** the MIC (how far the profile deviates from the inner circle)        |
 | `RONp`         | Largest single point **outside** the MIC                                                     |
-| `RONp Pos`     | Same as `RONp` (since all deviations are outward)                                            |
 | `RONv`         | Typically `0` or undefined (no valleys **inside** the MIC)                                   |
-| `RONv Pos`     | `0`                                                                                           |
 
 ---
 
@@ -157,10 +152,8 @@ All data points must lie **outside or on** the circle. The optimization maximize
 | **Parameter**  | **Meaning (from MCC)**                                                    |
 |----------------|---------------------------------------------------------------------------|
 | `RONt`         | Max distance **inside** the MCC (how far the profile retreats inward)     |
-| `RONp`         | Largest single point **inside** the MCC                                   |
-| `RONp Pos`     | `0`                                                                       |
+| `RONp`         | Largest positive deviation (farthest point from center of circle)         |
 | `RONv`         | Largest negative deviation (most retracted point inside the circle)       |
-| `RONv Pos`     | Same as `RONv`                                                            |
 
 ---
 
@@ -171,10 +164,8 @@ All data points must lie **outside or on** the circle. The optimization maximize
 | **Parameter**  | **Meaning (from MZC band)**                                               |
 |----------------|---------------------------------------------------------------------------|
 | `RONt`         | Radial distance between the outer and inner circle (zone width)           |
-| `RONp`         | Largest deviation from the center circle (either direction)               |
-| `RONp Pos`     | Largest outward deviation from center                                     |
+| `RONp`         | Largest outward deviation from center (positive)                          |
 | `RONv`         | Largest inward deviation from center (negative)                           |
-| `RONv Pos`     | Absolute value of `RONv`                                                  |
 
 
 #### ** LSC - Least-Squares circle
@@ -184,23 +175,10 @@ All data points must lie **outside or on** the circle. The optimization maximize
 | **Parameter**   | **Description** |
 |------------------|-----------------|
 | **RONt**         | **Total roundness deviation**: The difference between the **maximum** and **minimum** radial deviations from the LSC.<br> `RONt = max(deviation) - min(deviation)` |
-| **RONp**         | **Peak deviation (absolute)**: The largest **magnitude** of any radial deviation (positive or negative) from the LSC.<br> `RONp = max(|deviation|)` |
-| **RONp Pos**     | **Positive peak deviation**: The **maximum positive** radial deviation (point farthest **outside** the LSC). |
+| **RONp**         | **Peak deviation**: The **most positive** radial deviation (point farthest **outside** the LSC). |
 | **RONv**         | **Valley deviation**: The **most negative** radial deviation (point farthest **inside** the LSC). |
-| **RONv Pos**     | **Positive valley depth**: Absolute value of RONv.<br> `RONv Pos = |RONv|` |
-
 
 ---
-
-##  Summary Table
-
-| **Parameter**  | **MIC**             | **MCC**              | **MZC (Zone)**                   | **LSC (Least Squares)**                          |
-|----------------|---------------------|-----------------------|----------------------------------|--------------------------------------------------|
-| `RONt`         | Max outward dev     | Max inward dev        | Outer radius − inner radius      | Max dev − Min dev from best-fit circle          |
-| `RONp`         | Max outward dev     | Max inward dev        | Max dev from center circle       | Max(|deviation from best-fit circle|)           |
-| `RONp Pos`     | Same as `RONp`      | `0`                   | Max outward dev from center      | Max positive deviation from best-fit circle     |
-| `RONv`         | `0`                 | Most negative dev     | Most negative dev from center    | Most negative deviation from best-fit circle    |
-| `RONv Pos`     | `0`                 | `Abs(RONv)`           | `Abs(RONv)`                      | `Abs(RONv)` from best-fit circle              
 
 ### Surface Texture Parameters
 
