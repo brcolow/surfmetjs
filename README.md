@@ -814,15 +814,137 @@ z_open(x) = erosion(z, B) followed by dilation(z, B)
 
 ###  Form Removal Methods
 
-- Instrument Reference *(mean suppression)*
-- Least Squares Line
-- Least Squares Arc
-- Fixed Radius
-- Least Squares Polynomial *(user-specified order)*
-- Spline Filter *(for bandpass waviness with a user-specified cutoff)*
-- Asphere *(user-defined coefficients with optional radius optimization)*
-- Free Form *(user-defined coordinate-based form with optional pre-filtering)*
+---
 
+## 🔹 Instrument Reference (Mean Suppression)
+
+**Definition**: Subtracts the arithmetic mean height from the profile.
+
+**Mathematics**:
+Given a discrete profile `z(x_i)` over `i = 1, ..., N`:
+
+```
+z̄ = (1 / N) * Σ z(x_i)
+z_res(x_i) = z(x_i) - z̄
+```
+
+---
+
+## 🔹 Least Squares Line
+
+**Definition**: Fits a straight line `z(x) = a * x + b` to the profile via least squares and subtracts it.
+
+**Minimization**:
+Find `a`, `b` that minimize:
+
+```
+Σ [z(x_i) - (a * x_i + b)]²
+```
+
+**Form Removal**:
+
+```
+z_res(x_i) = z(x_i) - (a * x_i + b)
+```
+
+---
+
+## 🔹 Least Squares Arc
+
+**Definition**: Fits a circle `z(x) = sqrt(r² - (x - x₀)²) + z₀` via least squares.
+
+**Minimization**:
+Find center `(x₀, z₀)` and radius `r` that minimize:
+
+```
+Σ [z(x_i) - (z₀ ± sqrt(r² - (x_i - x₀)²))]²
+```
+
+**Residual**:
+
+```
+z_res(x_i) = z(x_i) - z_arc(x_i)
+```
+
+---
+
+## 🔹 Fixed Radius
+
+**Definition**: Subtracts a circle with a **user-specified radius** and origin (or fitted height).
+
+**Form**:
+If radius `r` and center `x₀` are fixed:
+
+```
+z_ref(x_i) = sqrt(r² - (x_i - x₀)²) + z₀
+```
+
+Then subtract `z_ref` as usual.
+
+---
+
+## 🔹 Least Squares Polynomial (User-Specified Order)
+
+**Definition**: Fits a polynomial of order `n` via least squares:
+
+```
+z(x) = a₀ + a₁ x + a₂ x² + ... + aₙ xⁿ
+```
+
+**Minimization**:
+Find coefficients `{a_k}` minimizing:
+
+```
+Σ [z(x_i) - Σ a_k x_i^k]²
+```
+
+Then subtract the fitted polynomial from the profile.
+
+---
+
+## 🔹 Spline Filter (Bandpass Waviness)
+
+**Definition**: Fits a smoothing spline with user-defined cutoff wavelength(s), often used to extract waviness after form is removed.
+
+**Objective Function**:
+
+```
+J[z_f] = Σ [z(x_i) - z_f(x_i)]² + α ∫ (d²z_f/dx²)² dx
+```
+
+- `α` controls the stiffness of the spline (linked to cutoff wavelength)
+
+---
+
+## 🔹 Asphere (User-Defined Coefficients)
+
+**Definition**: Subtracts a user-defined even-order aspheric surface model:
+
+```
+z(r) = (r² / [R * (1 + sqrt(1 - (1 + k) * r² / R²))]) + Σ A_{2n} * r^{2n}
+```
+
+Where:
+- `r` = radial distance
+- `R` = vertex radius of curvature (optionally optimized)
+- `k` = conic constant
+- `A_{2n}` = aspheric coefficients
+
+---
+
+## 🔹 Free Form (User-Defined Surface)
+
+**Definition**: Subtracts a user-supplied coordinate-based height map or mathematical model, optionally after applying a pre-filter (e.g., low-pass to smooth input).
+
+**Generic Form**:
+
+```
+z_res(x_i) = z(x_i) - z_form(x_i)
+```
+
+`z_form(x)` may be an arbitrary function, lookup table, or interpolated mesh.
+
+---
 
 ###  Surface Measurement Data Types
 
