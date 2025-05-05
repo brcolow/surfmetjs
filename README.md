@@ -712,12 +712,105 @@ This technique is particularly useful for **functional characterization** where 
 
 ###  Filters
 
-- **Gaussian Filter**
-- **Spline-Based Gaussian Filter** *(with adjustable tension)*
-- **Valley Suppression Filter** *(ISO 13565-1 – 1996)*
-- **Robust Spline-Based Gaussian Filter** *(uses robust regression)*
-- **Morphological Closing Filter** *(circular element applied to waviness profile)*
-- **Morphological Opening Filter** *(circular element applied to waviness profile)*
+# Surface Texture Filters in Metrology
+---
+
+##  1. Gaussian Filter
+
+The Gaussian filter is a linear low-pass filter used to separate roughness and waviness components.
+
+**Equation:**
+
+The filtered profile `z_f(x)` is the convolution of the profile `z(x)` with a Gaussian kernel `G(x)`:
+
+```
+z_f(x) = ∫ z(u) · G(x - u) du
+G(x) = (1 / √(2π)λ_c) · exp( -x² / (2λ_c²) )
+```
+
+- `λ_c`: Cutoff wavelength (e.g., 0.8 mm for roughness, 2.5 mm for waviness)
+
+---
+
+##  2. Spline-Based Gaussian Filter (Adjustable Tension)
+
+This filter uses spline smoothing with tension to approximate a Gaussian-like response, providing better control over boundary effects.
+
+**Minimization functional:**
+
+```
+J[z_f] = Σ (z_i - z_f(x_i))² + α ∫ (d²z_f/dx²)² dx
+```
+
+- `α`: Tension parameter controlling stiffness of the spline
+
+---
+
+##  3. Valley Suppression Filter (ISO 13565-1)
+
+Used for functional surfaces with deep valleys (e.g., plateau honing). Suppresses deep valleys to avoid biasing the mean line.
+
+**Algorithm:**
+
+1. Apply Gaussian filter
+2. Replace points deviating below a threshold
+3. Iterate until convergence
+
+This is a **truncated Gaussian filter** that ignores excessive valleys during smoothing.
+
+---
+
+##  4. Robust Spline-Based Gaussian Filter
+
+Improves upon spline-based filters by using robust regression to reduce sensitivity to outliers (e.g., scratches, dirt).
+
+**Functional:**
+
+```
+Minimize: Σ ρ(z_i - z_f(x_i)) + α ∫ (d²z_f/dx²)² dx
+```
+
+- `ρ(e)`: Robust loss function (e.g., Huber or Tukey's biweight)
+- Handles outliers more gracefully than squared-error loss
+
+---
+
+##  5. Morphological Closing Filter
+
+A nonlinear filter that **removes valleys** (fills pits). Based on morphological operations using a circular structuring element.
+
+**Operation:**
+
+```
+z_close(x) = dilation(z, B) followed by erosion(z, B)
+```
+
+Where `B` is a circular structuring element of specified radius.
+
+---
+
+## 6. Morphological Opening Filter
+
+The dual of closing — **removes peaks** (cuts spikes).
+
+**Operation:**
+
+```
+z_open(x) = erosion(z, B) followed by dilation(z, B)
+```
+
+---
+
+## Summary Table
+
+| Filter Name                        | Type     | Purpose                          | Notes                   |
+|-----------------------------------|----------|----------------------------------|-------------------------|
+| Gaussian Filter                   | Linear   | Separate roughness/waviness      | ISO standard            |
+| Spline-Based Gaussian             | Linear   | Smooth with boundary control     | Tension-adjustable      |
+| Valley Suppression (ISO 13565-1)  | Nonlinear| Remove deep valleys              | Iterative, asymmetric   |
+| Robust Spline Gaussian            | Nonlinear| Reduce outlier influence         | Uses robust loss        |
+| Morphological Closing             | Nonlinear| Suppress valleys                 | Dilation then erosion   |
+| Morphological Opening             | Nonlinear| Suppress peaks                   | Erosion then dilation   |
 
 ###  Form Removal Methods
 
@@ -762,3 +855,24 @@ This technique is particularly useful for **functional characterization** where 
 - 2-Column Radius: `*.sip`
 - Insitutec: `*.ist`
 - Multi-column SIG: `*.sigh`
+
+### TODO
+
+#### TLS vs OLS
+
+Investigate the use of TLS (Total Least Squares) versus OLS (Ordinary Least-Squares) because even though the roundness data is polar to start with (and there is no noise in the independent variable), as:
+
+You assume or know angles θ_i​ (from an encoder or timing).
+
+You measure the radius values r_i​, which contain measurement error.
+
+Here, only the radius r_i​ is noisy. Angles are assumed noise-free.
+
+HOWEVER, when converting to Catesian (x,y) coordinates:
+
+```
+x_i​=(r_i​+ε_i​)cos(θ_i)​
+y_i​=(r_i​+ε_i​)sin(θ_i)​
+```
+
+we are mixing in the noise from the radial component. Thus, if opne now fits a circle to these (x_i,y_i) using Ordinary Least Squares, one incorrectly assumes that only one coordinate (e.g., y) is noisy, which is false.
