@@ -59,15 +59,28 @@ function gradientDescent(points, circleType, initialEstimate, learningRate = 0.0
  * @param {Array<Array<number>>} points - The list of points to evaluate.
  * @param {string} circleType - The type of circle ("MIC", "MCC", or "MZC").
  * @param {Object} initialEstimate - Initial estimate of the circle parameters.
- * @param {number} [gamma=200] - The approximation parameter to simulate max-min functions with log-sum-exp (default: 200)
- * @param {number} [learningRateDecay=0.75] - The decay factor for the learning rate.
- * @param {number} [slopeDamper=0.25] - The damping factor for the slope at the current point.
- * @param {number} [maxIterations=1000] - The maximum number of iterations.
- * @param {number} [maxIterationsLineSearch=100] - The maximum number of (inner) iterations during line searchs.
- * @param {number} [epsilon=1e-8] - Stop if the gradient norm is below epsilon.
- * @returns {Object} The best solution found as an Object: {center: [x, y], radius: r}
+ * @param {Object} [options] - Optional configuration parameters.
+ * @param {number} [options.gamma=200] - Log-sum-exp approximation parameter for max/min.
+ * @param {number} [options.learningRateDecay=0.75] - Decay factor for the learning rate.
+ * @param {number} [options.slopeDamper=0.25] - Damping factor for the slope at the current point.
+ * @param {number} [options.maxIterations=1000] - Max number of outer iterations.
+ * @param {number} [options.maxIterationsLineSearch=100] - Max number of inner line search steps.
+ * @param {number} [options.epsilon=1e-8] - Convergence threshold on gradient norm.
+ * @returns {Object} The best solution found as { center: [x, y], radius: r }
  */
-function adaptiveGradientDescent(points, circleType, initialEstimate, gamma = 200, learningRateDecay = 0.75, slopeDamper = 0.25, maxIterations = 1000, maxIterationsLineSearch = 100, epsilon = 1e-8) {
+function adaptiveGradientDescent(
+  points,
+  circleType,
+  initialEstimate,
+  {
+    gamma = 200,
+    learningRateDecay = 0.75,
+    slopeDamper = 0.25,
+    maxIterations = 1000,
+    maxIterationsLineSearch = 100,
+    epsilon = 1e-8
+  } = {} // default empty object if not passed
+) {
   let params;
   if (circleType === "MZC") {
     const initialSolution = getInitialSolution(points, circleType, initialEstimate);

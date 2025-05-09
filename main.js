@@ -59,25 +59,33 @@ function polarToCartesian(polarCoords) {
 }
 
 function analyzeHarmonics(roundnessData) {
-  const f = new FFT(roundnessData.length);
-  const out = f.createComplexArray();
+  const N = roundnessData.length;
+  const fft = new FFT(N);
+  const out = fft.createComplexArray();
 
-  f.realTransform(out, roundnessData);
+  fft.realTransform(out, roundnessData);
 
-  for (let i = 0; i < out.length; i += 2) {
+  const nyquistBin = (N % 2 === 0) ? N / 2 : -1;
+
+  for (let i = 0; i <= nyquistBin * 2; i += 2) {
+    const n = i / 2;
     const real = out[i]; // a_n (cos)
     const imag = out[i + 1]; // b_n (sin)
+
+    const isDC = n === 0;
+    const isNyquist = n === nyquistBin;
+    const scale = (isDC || isNyquist) ? 1 : 2;
     // amplitude = c_n = sqrt(a_n^2 + b_n^2)
     // phase = γ_n = arctan(b_n / a_n)
     // a_n = c_n cos(γ_n) 
     // b_n = c_n sin(γ_n)
-    const amplitude = Math.sqrt(real * real + imag * imag) * ((i === 0 ? 1 : 2) / roundnessData.length); // This multiplies by the scaling factor so that the amplitudes stay in-tact.
+    const amplitude = Math.sqrt(real ** 2 + imag ** 2) * scale / N;
     const phase = Math.atan2(imag, real);
 
-    if (i === 0) {
-      console.log("Average radius (DC component): " + amplitude);
+    if (isDC) {
+      console.log(`Average radius (DC component): ${amplitude}`);
     } else {
-      console.log(`Harmonic ${i / 2}: Amplitude = ${amplitude}, Phase = ${phase}`);
+      console.log(`Harmonic ${n}: Amplitude = ${amplitude}, Phase = ${phase}`);
     }
   }
 }
@@ -415,12 +423,8 @@ function runTest(points, results, leastSquaresCircle, coolingType, coolingRate, 
     points.slice(),
     "MIC",
     leastSquaresCircle,
-    temperature,
-    { type: coolingType, rate: coolingRate },
-    maxIterations,
-    20,
-    neighborIterations,
-    (maxRadius - minRadius) / neighborMoveScale
+    (maxRadius - minRadius) / neighborMoveScale,
+    { initialTemperature: temperature, coolingType: { type: coolingType, rate: coolingRate }, maxIterations: maxIterations, equilibriumSteps: 20, maxNeighborIterations: neighborIterations}
   );
 
   const elapsed = performance.now() - timeStart;
@@ -450,7 +454,6 @@ function runTest(points, results, leastSquaresCircle, coolingType, coolingRate, 
     gdResult: gdResult
   });
 }
-
 /**
  * Computes the objective function value from a GD result (final optimized circle).
  */
@@ -550,6 +553,23 @@ readPointsFromURL(nistData)
         console.log(`Elapsed Time: ${best.elapsedMs.toFixed(2)} ms`);
         console.log("Best MIC Circle:", best.gdResult);
         console.log("Best Objective Value:", computeObjective(best.gdResult, points));
+
+        
+        console.log(leastSquaresCircle);
+        // Subtract the LSC center from the points to center the point-cloud around the origin (0,0).
+        const centeredPoints = points.map(point => [point[0] - best.gdResult.center[0], point[1] - best.gdResult.center[1]]);
+        console.log(
+          "SigmaRound_Data 1.0\n" +
+          "IDENTIFICATION: Test\n" +
+          "DATE: " +
+            (new Date()).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) +
+            ' ' +
+            (new Date()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+              .toUpperCase().replace(/ /g, '-') +
+          "\nNUMBER_OF_POINTS: " + centeredPoints.length +
+          "\nPROFILE_UM:\n" +
+          cartesianToPolar(centeredPoints).map(point => point[0]).join('\n')
+        );
       }
 
       if (true) {
@@ -565,7 +585,13 @@ readPointsFromURL(nistData)
       timeStart = performance.now();
       let biggestMic = null;
       for (let i = 0; i < 10; i++) {
-        const mic = simulatedAnnealing(points.slice(), "MIC", leastSquaresCircle, 1000, { type: 'logarithmic', rate: 0.1 }, 10000, 20, 5000, (maxRadius - minRadius) / 100);
+        const mic = simulatedAnnealing(
+          points.slice(),
+          "MIC",
+          leastSquaresCircle,
+          (maxRadius - minRadius) / 100,
+          { initialTemperature: 1000, coolingType: { type: 'logarithmic', rate: 0.1 }, maxIterations: 10000, equilibriumSteps: 20, maxNeighborIterations: 5000}
+        );
         if (biggestMic == null || mic.radius > biggestMic.radius) {
           biggestMic = mic;
           console.log("Gradient descent of SA solution: ");

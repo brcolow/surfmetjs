@@ -691,6 +691,8 @@ This technique is particularly useful for **functional characterization** where 
 ###  Filters
 
 # Surface Texture Filters in Metrology
+
+Standard UPR (undulations per revolution) ranges used for filters: 1-15 UPR, 1-50 UPR, 1-150 UPR, 1-500 UPR.
 ---
 
 ##  1. Gaussian Filter

@@ -1,20 +1,33 @@
 import { areConcentric, computeConvexHull, distanceSquared, findFarthestPoint, findNearestPoint, getInitialSolution, getRandomBetween, isPointInPolygon } from './utils.js';
 
 /**
- * Simulated annealing optimizer with equilibrium steps and (optional) final gradient descent refinement.
+ * Simulated annealing optimizer with equilibrium steps.
  *
  * @param {Array<Array<number>>} points - The input point set.
  * @param {string} circleType - "MIC", "MCC", or "MZC".
  * @param {Object} initialEstimate - Initial estimate of circle parameters.
- * @param {number} [initialTemperature=1000] - Starting temperature.
- * @param {Object} [coolingType={ type: 'logarithmic', rate: 0.1 }] - Cooling schedule object.
- * @param {number} [maxIterations=1000] - Number of temperature drops.
- * @param {number} [equilibriumSteps=20] - Number of neighbors tried per temperature.
- * @param {number} [maxNeighborIterations=5000] - Max tries to generate valid neighbor.
  * @param {number} stepSize - Perturbation scale.
- * @returns {Object} The best solution found as an Object: {center: [x, y], radius: r}
+ * @param {Object} [options] - Optional configuration parameters.
+ * @param {number} [options.initialTemperature=1000] - Starting temperature.
+ * @param {Object} [options.coolingType={ type: 'logarithmic', rate: 0.1 }] - Cooling schedule object.
+ * @param {number} [options.maxIterations=1000] - Number of temperature drops.
+ * @param {number} [options.equilibriumSteps=20] - Number of neighbors tried per temperature.
+ * @param {number} [options.maxNeighborIterations=5000] - Max tries to generate a valid neighbor.
+ * @returns {Object} The best solution found as: { center: [x, y], radius: r }
  */
-function simulatedAnnealing(points, circleType, initialEstimate, initialTemperature = 1000, coolingType = { type: 'logarithmic', rate: 0.1 }, maxIterations = 1000, equilibriumSteps = 20, maxNeighborIterations = 5000, stepSize) {
+function simulatedAnnealing(
+  points,
+  circleType,
+  initialEstimate,
+  stepSize,
+  {
+    initialTemperature = 1000,
+    coolingType = { type: 'logarithmic', rate: 0.1 },
+    maxIterations = 1000,
+    equilibriumSteps = 20,
+    maxNeighborIterations = 5000
+  } = {}
+) {
   const initialSolution = getInitialSolution(points, circleType, initialEstimate);
 
   let currentSolution = initialSolution;
