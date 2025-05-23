@@ -39,9 +39,9 @@ r
 ```
 
 ### 🔹 Subject to:
-```
-(xᵢ - a)² + (yᵢ - b)² ≤ r²  ∀ i ∈ [1, N]
-```
+$$
+(x_i - a)^2 + (y_i - b)^2 \leq r^2 \quad \forall i \in [1, N]
+$$
 
 This ensures all data points lie **inside or on** the circle. The objective minimizes the radius to form the tightest possible enclosing zone.
 
