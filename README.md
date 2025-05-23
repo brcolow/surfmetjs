@@ -1,137 +1,128 @@
-#  Four Circles for Determining Roundness
 
-These circles quantify roundness using different geometric criteria. All can be solved as **non-linear minimization problems**.
+# Four Circles for Determining Roundness
+
+When evaluating the roundness of a 2D profile, four primary reference circles are used:
 
 ---
 
-##  Least Squares Circle (LSC)
+## 🔵 Least Squares Circle (LSC)
 
-> A best-fit circle that minimizes the sum of squared deviations from all points.
+> A best-fit circle that minimizes the sum of squared deviations in radial distance from all points to the circle.
 
-### 🔹 Objective
+### 🔹 Objective  
+Minimize the sum of squared errors:
+$$
+\min_{a,b,r} \sum_{i=1}^{N} \left[ (x_i - a)^2 + (y_i - b)^2 - r^2 \right]^2
+$$
 
-Minimize:
-```
-Σ [ (xᵢ - a)² + (yᵢ - b)² - r² ]
-```
+### 🔹 Variables
+- \( (a, b) \): center coordinates of the circle  
+- \( r \): radius of the circle  
+- \( (x_i, y_i) \): i-th data point  
+- \( N \): total number of data points  
 
-### 🔹 Where:
-- `Σ`: summation over all data points (i = 1 to N)
-- `(a, b)`: center coordinates of the circle
-- `(xᵢ, yᵢ)`: coordinates of the i-th data point
-- `r`: radius of the circle
+### 🔹 Notes
+- Best-fit in the least-squares sense (orthogonal to the radial direction).
+- Uses Total Least Squares as error is mixed in when converting from radial to Cartesian coordinates.
+- Often solved using the **Levenberg–Marquardt** algorithm.
 
-This minimizes the squared difference between the actual radial distance of each point and the estimated radius.
-**Solution method**: Levenberg–Marquardt algorithm.
 🔗 [Java Implementation (BoneJ)](https://github.com/mdoube/BoneJ/blob/17ee483603afa8a7efb745512be60a29e093c94e/src/org/doube/geometry/FitCircle.java#L43)
 
 ---
 
-##  Minimum Zone Circle (MZC)
+## 🟣 Minimum Inscribed Circle (MIC)
 
-> Finds the thinnest circular band (between two concentric circles) that fully encloses the profile.
+> The largest circle that fits entirely inside the profile, touching at least one point on the boundary.
 
-### 🔹 Objective
+### 🔹 Objective  
+$$
+\max_{a,b,r} \quad r
+$$
 
-Minimize:
-```
-r
-```
+### 🔹 Constraint  
+$$
+(x_i - a)^2 + (y_i - b)^2 \geq r^2 \quad \forall i \in [1, N]
+$$
 
-### 🔹 Subject to:
+### 🔹 Notes
+- Ensures no point lies inside the circle.
+- Typically solved using **simulated annealing**, **convex optimization**, or **support point methods**.
+
+---
+
+## 🟢 Minimum Circumscribed Circle (MCC)
+
+> The smallest circle that completely encloses the profile, touching at least one point on the boundary.
+
+### 🔹 Objective  
+$$
+\min_{a,b,r} \quad r
+$$
+
+### 🔹 Constraint  
 $$
 (x_i - a)^2 + (y_i - b)^2 \leq r^2 \quad \forall i \in [1, N]
 $$
 
-This ensures all data points lie **inside or on** the circle. The objective minimizes the radius to form the tightest possible enclosing zone.
+### 🔹 Notes
+- Ensures all points lie inside or on the circle.
+- Can be solved using **Welzl's algorithm** or **convex hull-based methods**.
 
 ---
 
-##  Minimum Circumscribed Circle (MCC)
+## 🟡 Minimum Zone Circle (MZC)
 
-> Also known as the "Smallest-circle problem".
+> The pair of concentric circles that enclose all profile points within the narrowest possible radial band.
 
-### 🔹 Objective
+### 🔹 Objective  
+$$
+\min_{a,b,r_{+},r_{-}} \quad (r_{+} - r_{-})
+$$
 
-Minimize:
-```
-r
-```
+### 🔹 Constraint  
+$$
+r_{-}^2 \leq (x_i - a)^2 + (y_i - b)^2 \leq r_{+}^2 \quad \forall i \in [1, N]
+$$
 
-### 🔹 Subject to:
-```
-min( (xᵢ - a)² + (yᵢ - b)² ) = r²  for at least one i
-```
-
-Ensures **at least one point lies exactly** on the circle boundary while the rest are inside.
-**Implementation example**:
-🔗 [miniball library](https://github.com/hbf/miniball)
+### 🔹 Notes
+- Also called the **roundness deviation** or **circularity**.
+- Solved using **nonlinear programming**, **dual support point methods**, or **geometric algebra**.
 
 ---
 
-## 🟠 Maximum Inscribed Circle (MIC)
+#  Deviation Types
 
-> Also known as the "Maximum empty circle problem".
-
-### 🔹 Objective
-
-Maximize:
-```
-r
-```
-
-### 🔹 Subject to:
-```
-(xᵢ - a)² + (yᵢ - b)² ≥ r²  ∀ i ∈ [1, N]
-```
-
-All data points must lie **outside or on** the circle. The optimization maximizes the radius of the largest possible empty circle that fits within the profile.
-
----
-
-##  Summary
-
-| Circle Type | Objective       | Constraint Type                            | Description                                |
-|-------------|------------------|--------------------------------------------|--------------------------------------------|
-| **LSC**     | Minimize squared radial error | No constraints | Best-fit circle using all points            |
-| **MZC**     | Minimize `r`     | All points inside or on                    | Smallest enclosing zone width              |
-| **MCC**     | Minimize `r`     | At least one point on circle               | Smallest enclosing circle                  |
-| **MIC**     | Maximize `r`     | All points outside or on                   | Largest circle inside the profile          |
-
-
-##  Deviation Types
-
-### **`RONt` – Total Roundness (Total Runout)**
+## **`RONt` – Total Roundness (Total Runout)**
 - **Definition**: Maximum radial distance between the highest peak and lowest valley from the reference circle.
 - **Formula**: `RONt = max deviation - min deviation`
 - **Also known as**: Total roundness deviation, roundness error.
 
 ---
 
-### **`RONp` – Peak Roundness**
+## **`RONp` – Peak Roundness**
 - **Definition**: The largest single peak (positive or negative) deviation from the reference circle.
 - **Formula**: `RONp = max(|positive deviation|, |negative deviation|)`
 - **Use case**: Indicates the worst-case point of form error.
 
 ---
 
-### **`RONp Pos` – Peak Position**
+## **`RONp Pos` – Peak Position**
 - **Definition**: The position (in degrees) of the largest positive peak.
 
 ---
 
-### **`RONv` – Valley Roundness**
+## **`RONv` – Valley Roundness**
 - **Definition**: The largest single valley (negative) deviation from the reference circle.
 - **Formula**: `RONv = min deviation` (in the negative direction)
 
 ---
 
-### **`RONv Pos` – Valley Position**
+## **`RONv Pos` – Valley Position**
 - **Definition**: The position (in degrees) of the largest negative peak.
 
 ---
 
-## ️ Reference Circle Types
+## ️ Deviation Types for Reference Circles
 
 ### ** MIC – Maximum Inscribed Circle**
 > The largest circle that fits entirely inside the profile.
@@ -174,15 +165,15 @@ All data points must lie **outside or on** the circle. The optimization maximize
 
 | **Parameter**   | **Description** |
 |------------------|-----------------|
-| **RONt**         | **Total roundness deviation**: The difference between the **maximum** and **minimum** radial deviations from the LSC.<br> `RONt = max(deviation) - min(deviation)` |
-| **RONp**         | **Peak deviation**: The **most positive** radial deviation (point farthest **outside** the LSC). |
-| **RONv**         | **Valley deviation**: The **most negative** radial deviation (point farthest **inside** the LSC). |
+| `RONt`           | **Total roundness deviation**: The difference between the **maximum** and **minimum** radial deviations from the LSC.<br> `RONt = max(deviation) - min(deviation)` |
+| `RONp`           | **Peak deviation**: The **most positive** radial deviation (point farthest **outside** the LSC). |
+| `RONv`           | **Valley deviation**: The **most negative** radial deviation (point farthest **inside** the LSC). |
 
 ---
 
-### Surface Texture Parameters
+# Surface Texture Parameters
 
-#### P: Primary profile (unfiltered)
+## P: Primary profile (unfiltered)
 
 * **Pa**
     * **Name:** **Arithmetic Mean Deviation of the Primary Profile**
@@ -253,7 +244,7 @@ All data points must lie **outside or on** the circle. The optimization maximize
     * **Name:** **Profile Valley Core Fluid Retention Volume** (*Often related to the Rk family parameters, but applied to the Primary Profile*)
     * **Description:** This parameter typically relates to the Abbott-Firestone curve (material ratio curve) of the primary profile. It quantifies the void volume within the "core" region of the profile's valleys (often defined between material ratios like 10% and 80%), representing the profile's capacity to retain fluid (like lubricants) in the main working zone of the surface texture.
 
-#### R: Roughness profile (after filtering to remove waviness)
+## R: Roughness profile (after filtering to remove waviness)
 
 * **Ra**
     * **Name:** **Arithmetic Mean Deviation of the Roughness Profile**
@@ -500,7 +491,7 @@ All data points must lie **outside or on** the circle. The optimization maximize
     * **Description:** Rx can denote the highest single peak-to-valley height across the entire surface profile, serving as a robustness measure for the worst-case surface deviation.
     * *May also be used generically as an extreme-value roughness metric.*
 
-#### W: Waviness profile (after filtering to remove roughness)
+## W: Waviness profile (after filtering to remove roughness)
 
 * **Wa**
     * **Name:** **Arithmetic Mean Deviation of the Waviness Profile**
@@ -630,7 +621,7 @@ All data points must lie **outside or on** the circle. The optimization maximize
     * **Name:** **Extreme Waviness Height**
     * **Description:** Wx denotes the maximum peak-to-valley height in the waviness profile. Analogous to Rx, but specific to the filtered waviness component.
 
-####  Bearing Ratios & Material Ratios
+##  Bearing Ratios & Material Ratios
 
 * **Pmr / Rmr**
     * **Name:** **Material Ratio (Primary / Roughness Profile)**
@@ -646,7 +637,7 @@ All data points must lie **outside or on** the circle. The optimization maximize
 
 ---
 
-####  Htp Values (Peak Height at Material Ratio Level)
+##  Htp Values (Peak Height at Material Ratio Level)
 
 * **PHtp / RHtp**
     * **Name:** **Height at Material Ratio (Primary / Roughness Profile)**
@@ -668,7 +659,7 @@ These values are often visualized together on **bearing ratio graphs** or **Abbo
 - X-axis = Material ratio (%)
 - Y-axis = Profile height (μm)
 
-###  Motif-Based Surface Texture Analysis (ISO 12085 Overview)
+#  Motif-Based Surface Texture Analysis (ISO 12085 Overview)
 
 Motif analysis, sometimes referred to as the CNOMO method (from French standards), is a form of profile decomposition where the surface trace is segmented into individual, geometrically defined features—called **motifs**. This approach is different from classical roughness parameters that are based on filtering (e.g., Gaussian filters in ISO 4287). Instead, motifs are determined by:
 - Identifying **inflection points** (where curvature changes)
@@ -688,14 +679,14 @@ Motif analysis, sometimes referred to as the CNOMO method (from French standards
 
 This technique is particularly useful for **functional characterization** where micro-geometry of repeating features affects wear, friction, sealing, or coating adhesion.
 
-###  Filters
+#  Filters
 
-# Surface Texture Filters in Metrology
+## Surface Texture Filters in Metrology
 
 Standard UPR (undulations per revolution) ranges used for filters: 1-15 UPR, 1-50 UPR, 1-150 UPR, 1-500 UPR.
 ---
 
-##  1. Gaussian Filter
+###  1. Gaussian Filter
 
 The Gaussian filter is a linear low-pass filter used to separate roughness and waviness components.
 
@@ -703,30 +694,30 @@ The Gaussian filter is a linear low-pass filter used to separate roughness and w
 
 The filtered profile `z_f(x)` is the convolution of the profile `z(x)` with a Gaussian kernel `G(x)`:
 
-```
-z_f(x) = ∫ z(u) · G(x - u) du
-G(x) = (1 / √(2π)λ_c) · exp( -x² / (2λ_c²) )
-```
+$$
+z_f(x) &= \int z(u) \cdot G(x - u) \, du \\
+G(x) &= \frac{1}{\sqrt{2\pi} \, \lambda_c} \cdot \exp\left( -\frac{x^2}{2\lambda_c^2} \right)
+$$
 
 - `λ_c`: Cutoff wavelength (e.g., 0.8 mm for roughness, 2.5 mm for waviness)
 
 ---
 
-##  2. Spline-Based Gaussian Filter (Adjustable Tension)
+###  2. Spline-Based Gaussian Filter (Adjustable Tension)
 
 This filter uses spline smoothing with tension to approximate a Gaussian-like response, providing better control over boundary effects.
 
 **Minimization functional:**
 
-```
-J[z_f] = Σ (z_i - z_f(x_i))² + α ∫ (d²z_f/dx²)² dx
-```
+$$
+J[z_f] = \sum_i \left( z_i - z_f(x_i) \right)^2 + \alpha \int \left( \frac{d^2 z_f}{dx^2} \right)^2 dx
+$$
 
 - `α`: Tension parameter controlling stiffness of the spline
 
 ---
 
-##  3. Valley Suppression Filter (ISO 13565-1)
+###  3. Valley Suppression Filter (ISO 13565-1)
 
 Used for functional surfaces with deep valleys (e.g., plateau honing). Suppresses deep valleys to avoid biasing the mean line.
 
@@ -740,30 +731,30 @@ This is a **truncated Gaussian filter** that ignores excessive valleys during sm
 
 ---
 
-##  4. Robust Spline-Based Gaussian Filter
+###  4. Robust Spline-Based Gaussian Filter
 
 Improves upon spline-based filters by using robust regression to reduce sensitivity to outliers (e.g., scratches, dirt).
 
 **Functional:**
 
-```
-Minimize: Σ ρ(z_i - z_f(x_i)) + α ∫ (d²z_f/dx²)² dx
-```
+$$
+\min \left\{ \sum_i \rho\left( z_i - z_f(x_i) \right) + \alpha \int \left( \frac{d^2 z_f}{dx^2} \right)^2 dx \right\}
+$$
 
 - `ρ(e)`: Robust loss function (e.g., Huber or Tukey's biweight)
 - Handles outliers more gracefully than squared-error loss
 
 ---
 
-##  5. Morphological Closing Filter
+###  5. Morphological Closing Filter
 
 A nonlinear filter that **removes valleys** (fills pits). Based on morphological operations using a circular structuring element.
 
 **Operation:**
 
-```
-z_close(x) = dilation(z, B) followed by erosion(z, B)
-```
+$$
+z_{\text{close}}(x) = \left[ z \oplus B \right] \ominus B
+$$
 
 Where `B` is a circular structuring element of specified radius.
 
@@ -775,9 +766,9 @@ The dual of closing — **removes peaks** (cuts spikes).
 
 **Operation:**
 
-```
-z_open(x) = erosion(z, B) followed by dilation(z, B)
-```
+$$
+z_{\text{open}}(x) = \left[ z \ominus B \right] \oplus B
+$$
 
 ---
 
@@ -792,7 +783,7 @@ z_open(x) = erosion(z, B) followed by dilation(z, B)
 | Morphological Closing             | Nonlinear| Suppress valleys                 | Dilation then erosion   |
 | Morphological Opening             | Nonlinear| Suppress peaks                   | Erosion then dilation   |
 
-###  Form Removal Methods
+#  Form Removal Methods
 
 ---
 
@@ -803,10 +794,10 @@ z_open(x) = erosion(z, B) followed by dilation(z, B)
 **Mathematics**:
 Given a discrete profile `z(x_i)` over `i = 1, ..., N`:
 
-```
-z̄ = (1 / N) * Σ z(x_i)
-z_res(x_i) = z(x_i) - z̄
-```
+$$
+\bar{z} = \frac{1}{N} \sum_{i=1}^{N} z(x_i), \quad
+z_{\text{res}}(x_i) = z(x_i) - \bar{z}
+$$
 
 ---
 
@@ -817,15 +808,15 @@ z_res(x_i) = z(x_i) - z̄
 **Minimization**:
 Find `a`, `b` that minimize:
 
-```
-Σ [z(x_i) - (a * x_i + b)]²
-```
+$$
+\sum_{i=1}^{N} \left[ z(x_i) - (a x_i + b) \right]^2
+$$
 
 **Form Removal**:
 
-```
-z_res(x_i) = z(x_i) - (a * x_i + b)
-```
+$$
+z_{\text{res}}(x_i) = z(x_i) - (a x_i + b)
+$$
 
 ---
 
@@ -836,15 +827,15 @@ z_res(x_i) = z(x_i) - (a * x_i + b)
 **Minimization**:
 Find center `(x₀, z₀)` and radius `r` that minimize:
 
-```
-Σ [z(x_i) - (z₀ ± sqrt(r² - (x_i - x₀)²))]²
-```
+$$
+\sum_{i=1}^{N} \left[ z(x_i) - \left( z_0 \pm \sqrt{r^2 - (x_i - x_0)^2} \right) \right]^2
+$$
 
 **Residual**:
 
-```
-z_res(x_i) = z(x_i) - z_arc(x_i)
-```
+$$
+z_{\text{res}}(x_i) = z(x_i) - z_{\text{arc}}(x_i)
+$$
 
 ---
 
@@ -855,9 +846,9 @@ z_res(x_i) = z(x_i) - z_arc(x_i)
 **Form**:
 If radius `r` and center `x₀` are fixed:
 
-```
-z_ref(x_i) = sqrt(r² - (x_i - x₀)²) + z₀
-```
+$$
+z_{\text{ref}}(x_i) = \sqrt{r^2 - (x_i - x_0)^2} + z_0
+$$
 
 Then subtract `z_ref` as usual.
 
@@ -867,16 +858,16 @@ Then subtract `z_ref` as usual.
 
 **Definition**: Fits a polynomial of order `n` via least squares:
 
-```
-z(x) = a₀ + a₁ x + a₂ x² + ... + aₙ xⁿ
-```
+$$
+z(x) = a_0 + a_1 x + a_2 x^2 + \dots + a_n x^n
+$$
 
 **Minimization**:
 Find coefficients `{a_k}` minimizing:
 
-```
-Σ [z(x_i) - Σ a_k x_i^k]²
-```
+$$
+\sum_{i=1}^{N} \left[ z(x_i) - \sum_{k=0}^{n} a_k x_i^k \right]^2
+$$
 
 Then subtract the fitted polynomial from the profile.
 
@@ -888,9 +879,9 @@ Then subtract the fitted polynomial from the profile.
 
 **Objective Function**:
 
-```
-J[z_f] = Σ [z(x_i) - z_f(x_i)]² + α ∫ (d²z_f/dx²)² dx
-```
+$$
+J[z_f] = \sum_{i=1}^{N} \left[ z(x_i) - z_f(x_i) \right]^2 + \alpha \int \left( \frac{d^2 z_f}{dx^2} \right)^2 dx
+$$
 
 - `α` controls the stiffness of the spline (linked to cutoff wavelength)
 
@@ -900,9 +891,9 @@ J[z_f] = Σ [z(x_i) - z_f(x_i)]² + α ∫ (d²z_f/dx²)² dx
 
 **Definition**: Subtracts a user-defined even-order aspheric surface model:
 
-```
-z(r) = (r² / [R * (1 + sqrt(1 - (1 + k) * r² / R²))]) + Σ A_{2n} * r^{2n}
-```
+$$
+z(r) = \frac{r^2}{R \left( 1 + \sqrt{1 - (1 + k) \frac{r^2}{R^2}} \right)} + \sum_{n=1}^{N} A_{2n} \, r^{2n}
+$$
 
 Where:
 - `r` = radial distance
@@ -918,15 +909,15 @@ Where:
 
 **Generic Form**:
 
-```
-z_res(x_i) = z(x_i) - z_form(x_i)
-```
+$$
+z_{\text{res}}(x_i) = z(x_i) - z_{\text{form}}(x_i)
+$$
 
 `z_form(x)` may be an arbitrary function, lookup table, or interpolated mesh.
 
 ---
 
-###  Surface Measurement Data Types
+# Surface Measurement File Types
 
 - SigmaSurf: `*.sig`
 - Jenoptik/Hommelwerke: `*.pro`, `*.pip`, `*.asc`, `*.smd`, `*.hwp`, `*.hfm`
