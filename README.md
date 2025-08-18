@@ -30,9 +30,9 @@ $$
 
 ---
 
-## 🟣 Minimum Inscribed Circle (MIC)
+## 🟣 Maximum Inscribed Circle (MIC)
 
-> The largest circle that fits entirely inside the profile, touching at least one point on the boundary.
+> The largest circle that fits entirely inside the profile, touching at least one point on the boundary. Also called the "maximum empty circle" in CG.
 
 ### 🔹 Objective  
 $$
@@ -44,15 +44,11 @@ $$
 (x_i - a)^2 + (y_i - b)^2 \geq r^2 \quad \forall i \in [1, N]
 $$
 
-### 🔹 Notes
-- Ensures no point lies inside the circle.
-- Typically solved using **simulated annealing**, **convex optimization**, or **support point methods**.
-
 ---
 
 ## 🟢 Minimum Circumscribed Circle (MCC)
 
-> The smallest circle that completely encloses the profile, touching at least one point on the boundary.
+> The smallest circle that completely encloses the profile, touching at least one point on the boundary. Also called the "smallest enclosing circle" in CG.
 
 ### 🔹 Objective  
 $$
@@ -64,15 +60,11 @@ $$
 (x_i - a)^2 + (y_i - b)^2 \leq r^2 \quad \forall i \in [1, N]
 $$
 
-### 🔹 Notes
-- Ensures all points lie inside or on the circle.
-- Can be solved using **Welzl's algorithm** or **convex hull-based methods**.
-
 ---
 
 ## 🟡 Minimum Zone Circle (MZC)
 
-> The pair of concentric circles that enclose all profile points within the narrowest possible radial band.
+> The pair of concentric circles that enclose all profile points within the narrowest possible radial band. Also called the "minimum anulus problem" in CG.
 
 ### 🔹 Objective  
 $$
@@ -83,10 +75,6 @@ $$
 $$
 r_{-}^2 \leq (x_i - a)^2 + (y_i - b)^2 \leq r_{+}^2 \quad \forall i \in [1, N]
 $$
-
-### 🔹 Notes
-- Also called the **roundness deviation** or **circularity**.
-- Solved using **nonlinear programming**, **dual support point methods**, or **geometric algebra**.
 
 ---
 
