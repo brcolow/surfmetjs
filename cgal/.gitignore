@@ -1,0 +1,5 @@
+build/
+/CGAL-6*
+/perf-6*
+CGAL-6*.tar.gz
+poky.wkt

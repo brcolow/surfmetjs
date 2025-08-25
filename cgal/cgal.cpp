@@ -10,8 +10,11 @@
 #include <CGAL/Delaunay_triangulation_2.h>
 #include <CGAL/Exact_predicates_exact_constructions_kernel_with_sqrt.h>
 #include <CGAL/IO/io.h>
+#include <CGAL/Kernel/global_functions_2.h> // circumcenter, midpoint
 #include <CGAL/Min_circle_2.h>
 #include <CGAL/Min_circle_2_traits_2.h>
+#include <CGAL/Min_sphere_of_spheres_d.h>
+#include <CGAL/Min_sphere_of_spheres_d_traits_2.h>
 #include <CGAL/Polygon_2.h>
 #include <CGAL/Segment_Delaunay_graph_2.h>
 #include <CGAL/Segment_Delaunay_graph_adaptation_traits_2.h>
@@ -32,21 +35,12 @@ using SDG = CGAL::Segment_Delaunay_graph_2<GT>;
 using AT = CGAL::Segment_Delaunay_graph_adaptation_traits_2<SDG>;
 using VD = CGAL::Voronoi_diagram_2<SDG, AT>;
 
-// Pretty-print an exact number (FT) as rational/surd.
-static std::string exact_str(const FT &x) {
-  std::ostringstream oss;
-  oss << x; // With this Kernel, operator<< prints exact forms (e.g., (a +
-            // b*sqrt(c))/d)
-  return oss.str();
-}
-
 // Decimal for WKT output (WKT is numeric-decimal only).
 static std::string decimal_str(const FT &x, int digits = 17) {
   std::ostringstream oss;
   oss.setf(std::ios::fixed);
   oss.precision(digits);
-  oss << CGAL::to_double(
-      x); // for interoperability; exact form is printed separately
+  oss << CGAL::to_double(x);
   return oss.str();
 }
 
@@ -156,6 +150,63 @@ MCC_Result minimum_circumscribed_circle(const Polygon &poly_in) {
   for (auto it = mc.support_points_begin(); it != mc.support_points_end(); ++it)
     out.support.push_back(*it);
 
+  return out;
+}
+
+MCC_Result minimum_circumscribed_circle2(const Polygon& poly_in) {
+  MCC_Result out;
+  if (poly_in.size() == 0) return out;
+
+  // 1) Collect vertices
+  std::vector<Point> pts;
+  pts.reserve(poly_in.size());
+  for (auto v = poly_in.vertices_begin(); v != poly_in.vertices_end(); ++v)
+    pts.push_back(*v);
+
+  // 2) Convex hull (MEC depends only on hull)
+  std::vector<Point> hull;
+  hull.reserve(pts.size());
+  CGAL::convex_hull_2(pts.begin(), pts.end(), std::back_inserter(hull));
+  if (hull.empty()) return out;
+
+  // 3) MEC via Min_sphere_of_spheres_d (2D traits)
+  using Traits    = CGAL::Min_sphere_of_spheres_d_traits_2<K, FT>;
+  using MinSphere = CGAL::Min_sphere_of_spheres_d<Traits>;
+  using Sphere    = typename Traits::Sphere;  // typically std::pair<Point, FT> (center, r^2)
+
+  std::vector<Sphere> spheres;
+  spheres.reserve(hull.size());
+  for (const auto& p : hull) spheres.emplace_back(p, FT(0)); // radius^2 = 0
+
+  MinSphere ms(spheres.begin(), spheres.end());
+  if (ms.is_empty()) return out;
+
+  // 4) Extract support points (dereference iterator, then .first)
+  std::vector<Point> sup;
+  for (auto it = ms.support_begin(); it != ms.support_end(); ++it)
+    sup.push_back((*it).first);
+
+  // 5) Compute center from support set (handles all versions; no center() call)
+  if (sup.empty()) return out; // should not happen unless degenerate/no points
+
+  if (sup.size() == 1) {
+    out.center = sup[0];
+  } else if (sup.size() == 2) {
+    out.center = CGAL::midpoint(sup[0], sup[1]);
+  } else {
+    // 3 points → circumcenter
+    out.center = CGAL::circumcenter(sup[0], sup[1], sup[2]);
+  }
+
+  // 6) Compute exact r^2 as farthest hull distance to center
+  FT r2 = FT(0);
+  for (const auto& p : hull) {
+    FT d2 = CGAL::squared_distance(out.center, p);
+    if (d2 > r2) r2 = d2;
+  }
+  out.r2 = r2;
+  out.valid = true;
+  out.support = std::move(sup);
   return out;
 }
 
@@ -645,10 +696,10 @@ int main(int argc, char **argv) {
     std::cout << "MIC_RADIUS_DEC=" << std::sqrt(CGAL::to_double(mic.r2))
               << "\n";
 
-    std::cout << "MIC_CENTER_EXACT_X=" << exact_str(mic.center.x()) << "\n";
-    std::cout << "MIC_CENTER_EXACT_Y=" << exact_str(mic.center.y()) << "\n";
-    std::cout << "MIC_RADIUS2_EXACT=" << exact_str(mic.r2) << "\n";
-    std::cout << "MIC_RADIUS_EXACT=sqrt(" << exact_str(mic.r2) << ")\n";
+    std::cout << "MIC_CENTER_EXACT_X=" << CGAL::exact(mic.center.x()) << "\n";
+    std::cout << "MIC_CENTER_EXACT_Y=" << CGAL::exact(mic.center.y()) << "\n";
+    std::cout << "MIC_RADIUS2_EXACT=" << CGAL::exact(mic.r2) << "\n";
+    std::cout << "MIC_RADIUS_EXACT=sqrt(" << CGAL::exact(mic.r2) << ")\n";
   }
 
   // MCC
@@ -661,25 +712,49 @@ int main(int argc, char **argv) {
     std::cout << "MCC_RADIUS_DEC=" << std::sqrt(CGAL::to_double(mcc.r2))
               << "\n";
 
-    std::cout << "MCC_CENTER_EXACT_X=" << exact_str(mcc.center.x()) << "\n";
-    std::cout << "MCC_CENTER_EXACT_Y=" << exact_str(mcc.center.y()) << "\n";
-    std::cout << "MCC_RADIUS2_EXACT=" << exact_str(mcc.r2) << "\n";
-    std::cout << "MCC_RADIUS_EXACT=sqrt(" << exact_str(mcc.r2) << ")\n";
+    std::cout << "MCC_CENTER_EXACT_X=" << CGAL::exact(mcc.center.x()) << "\n";
+    std::cout << "MCC_CENTER_EXACT_Y=" << CGAL::exact(mcc.center.y()) << "\n";
+    std::cout << "MCC_RADIUS2_EXACT=" << CGAL::exact(mcc.r2) << "\n";
+    std::cout << "MCC_RADIUS_EXACT=sqrt(" << CGAL::exact(mcc.r2) << ")\n";
 
     if (!mcc.support.empty()) {
       std::cout << "MCC_SUPPORT_POINTS=";
       for (std::size_t i = 0; i < mcc.support.size(); ++i) {
         if (i)
           std::cout << "; ";
-        std::cout << "(" << exact_str(mcc.support[i].x()) << ", "
-                  << exact_str(mcc.support[i].y()) << ")";
+        std::cout << "(" << CGAL::exact(mcc.support[i].x()) << ", "
+                  << CGAL::exact(mcc.support[i].y()) << ")";
       }
       std::cout << "\n";
     }
   }
 
-  // If both valid, print deltas (decimal) to show they’re close but not
-  // identical
+  auto mcc2 = minimum_circumscribed_circle2(poly);
+  if (!mcc2.valid) {
+    std::cerr << "MCC2 not found (empty/degenerate input?).\n";
+  } else {
+    std::cout << "MCC2_CENTER_DEC=(" << decimal_str(mcc2.center.x()) << ", "
+              << decimal_str(mcc2.center.y()) << ")\n";
+    std::cout << "MCC2_RADIUS_DEC=" << std::sqrt(CGAL::to_double(mcc2.r2))
+              << "\n";
+
+    std::cout << "MCC2_CENTER_EXACT_X=" << CGAL::exact(mcc2.center.x()) << "\n";
+    std::cout << "MCC2_CENTER_EXACT_Y=" << CGAL::exact(mcc2.center.y()) << "\n";
+    std::cout << "MCC2_RADIUS2_EXACT=" << CGAL::exact(mcc2.r2) << "\n";
+    std::cout << "MCC2_RADIUS_EXACT=sqrt(" << CGAL::exact(mcc2.r2) << ")\n";
+
+    if (!mcc2.support.empty()) {
+      std::cout << "MCC2_SUPPORT_POINTS=";
+      for (std::size_t i = 0; i < mcc2.support.size(); ++i) {
+        if (i)
+          std::cout << "; ";
+        std::cout << "(" << CGAL::exact(mcc2.support[i].x()) << ", "
+                  << CGAL::exact(mcc2.support[i].y()) << ")";
+      }
+      std::cout << "\n";
+    }
+  }
+
   if (mic.valid && mcc.valid) {
     auto dx = decimal_str(mcc.center.x() - mic.center.x());
     auto dy = decimal_str(mcc.center.y() - mic.center.y());
@@ -703,17 +778,17 @@ int main(int argc, char **argv) {
               << (std::sqrt(CGAL::to_double(mzc.R2)) -
                   std::sqrt(CGAL::to_double(mzc.r2)))
               << "\n";
-    std::cout << "MZC_CENTER_EXACT_X=" << exact_str(mzc.center.x()) << "\n";
-    std::cout << "MZC_CENTER_EXACT_Y=" << exact_str(mzc.center.y()) << "\n";
-    std::cout << "MZC_R_IN2_EXACT=" << exact_str(mzc.r2) << "\n";
-    std::cout << "MZC_R_OUT2_EXACT=" << exact_str(mzc.R2) << "\n";
+    std::cout << "MZC_CENTER_EXACT_X=" << CGAL::exact(mzc.center.x()) << "\n";
+    std::cout << "MZC_CENTER_EXACT_Y=" << CGAL::exact(mzc.center.y()) << "\n";
+    std::cout << "MZC_R_IN2_EXACT=" << CGAL::exact(mzc.r2) << "\n";
+    std::cout << "MZC_R_OUT2_EXACT=" << CGAL::exact(mzc.R2) << "\n";
     if (!mzc.inner_support.empty()) {
       std::cout << "MZC_INNER_SUPPORT=";
       for (std::size_t i = 0; i < mzc.inner_support.size(); ++i) {
         if (i)
           std::cout << "; ";
-        std::cout << "(" << exact_str(mzc.inner_support[i].x()) << ", "
-                  << exact_str(mzc.inner_support[i].y()) << ")";
+        std::cout << "(" << CGAL::exact(mzc.inner_support[i].x()) << ", "
+                  << CGAL::exact(mzc.inner_support[i].y()) << ")";
       }
       std::cout << "\n";
     }
@@ -722,8 +797,8 @@ int main(int argc, char **argv) {
       for (std::size_t i = 0; i < mzc.outer_support.size(); ++i) {
         if (i)
           std::cout << "; ";
-        std::cout << "(" << exact_str(mzc.outer_support[i].x()) << ", "
-                  << exact_str(mzc.outer_support[i].y()) << ")";
+        std::cout << "(" << CGAL::exact(mzc.outer_support[i].x()) << ", "
+                  << CGAL::exact(mzc.outer_support[i].y()) << ")";
       }
       std::cout << "\n";
     }
@@ -731,14 +806,55 @@ int main(int argc, char **argv) {
     std::cerr << "MZC not found.\n";
   }
 
+  // MZC 2
+  auto mzc2 = minimum_zone_circle_exact_region(poly);
+  if (mzc2.valid) {
+    std::cout << "MZC2_CENTER_DEC=(" << decimal_str(mzc2.center.x()) << ", "
+              << decimal_str(mzc2.center.y()) << ")\n";
+    std::cout << "MZC2_WIDTH_DEC="
+              << (std::sqrt(CGAL::to_double(mzc2.R2)) -
+                  std::sqrt(CGAL::to_double(mzc2.r2)))
+              << "\n";
+    std::cout << "MZC2_CENTER_EXACT_X=" << CGAL::exact(mzc2.center.x()) << "\n";
+    std::cout << "MZC2_CENTER_EXACT_Y=" << CGAL::exact(mzc2.center.y()) << "\n";
+    std::cout << "MZC2_R_IN2_EXACT=" << CGAL::exact(mzc2.r2) << "\n";
+    std::cout << "MZC2_R_OUT2_EXACT=" << CGAL::exact(mzc2.R2) << "\n";
+    if (!mzc2.inner_support.empty()) {
+      std::cout << "MZC2_INNER_SUPPORT=";
+      for (std::size_t i = 0; i < mzc2.inner_support.size(); ++i) {
+        if (i)
+          std::cout << "; ";
+        std::cout << "(" << CGAL::exact(mzc2.inner_support[i].x()) << ", "
+                  << CGAL::exact(mzc2.inner_support[i].y()) << ")";
+      }
+      std::cout << "\n";
+    }
+    if (!mzc2.outer_support.empty()) {
+      std::cout << "MZC2_OUTER_SUPPORT=";
+      for (std::size_t i = 0; i < mzc2.outer_support.size(); ++i) {
+        if (i)
+          std::cout << "; ";
+        std::cout << "(" << CGAL::exact(mzc2.outer_support[i].x()) << ", "
+                  << CGAL::exact(mzc2.outer_support[i].y()) << ")";
+      }
+      std::cout << "\n";
+    }
+  } else {
+    std::cerr << "MZC2 not found.\n";
+  }
+
+
   /*
   bool mic_ok = verify_mic(poly, mic.center, mic.r2);
   bool mcc_ok = verify_mcc(poly, mcc.center, mcc.r2);
   bool mzc_ok = verify_mzc_region(poly, mzc.center, mzc.r2, mzc.R2);
+  bool mzc2_ok = verify_mzc_region(poly, mzc2.center, mzc2.r2, mzc2.R2);
 
   std::cerr << "MIC_CERT=" << (mic_ok ? "OK" : "FAIL") << "\n";
   std::cerr << "MCC_CERT=" << (mcc_ok ? "OK" : "FAIL") << "\n";
   std::cerr << "MZC_CERT=" << (mzc_ok ? "OK" : "FAIL") << "\n";
+  std::cerr << "MZC2_CERT=" << (mzc2_ok ? "OK" : "FAIL") << "\n";
   */
+
   return 0;
 }
