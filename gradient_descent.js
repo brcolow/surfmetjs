@@ -268,14 +268,13 @@ function objectiveFunctionMCC(params, points) {
     const violation = dist - r;
 
     if (violation > 0) {
-      // Smooth quadratic penalty: gentle push if outside
       penalty += 0.5 * violation * violation;
     }
   }
 
-  // Main goal: minimize r while covering all points
   return -r + penalty;
 }
+
 /**
  * Objective function for Maximum Zone Circle (MZC).
  * Computes the zone width (difference between maximum and minimum distance to center)

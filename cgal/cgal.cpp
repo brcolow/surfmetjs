@@ -24,6 +24,9 @@
 
 #include <CGAL/IO/WKT.h>
 
+// TODO:
+// Look at using CGAL::linear_least_squares_fitting_2 for calculating LSC.
+
 using K = CGAL::Exact_predicates_exact_constructions_kernel_with_sqrt;
 using FT = K::FT;
 using Point = K::Point_2;

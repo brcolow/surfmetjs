@@ -6,8 +6,9 @@ import { adaptiveGradientDescent, getObjectiveFunction, gradientDescent, printCi
 import * as Plotly from 'plotly.js-dist-min';
 import Chart from 'chart.js/auto';
 import nistData from './nist/cir2d22.ds';
+import omniRoundQuarter from './omniround_quarter.txt'; // This is *not* a x/y trace of a circle - it is linear (the polar values are unrolled).
 import { getCurvePoints, getCurvePoints2 } from './cardinal_spline.js';
-import { distanceSquared, getRandomBetween } from './utils.js';
+import { distanceSquared, getRandomBetween, isPointInPolygon } from './utils.js';
 
 // const roundnessData = generateRandomRoundnessProfile(numPoints, minRadius, maxRadius);
 
@@ -146,6 +147,45 @@ function analyzeHarmonics2(roundnessData) {
   return amplitudes;
 }
 
+function dist2PointToSegment(p, a, b) {
+  const ux = b[0] - a[0], uy = b[1] - a[1];
+  const vx = p[0] - a[0], vy = p[1] - a[1];
+  const uu = ux*ux + uy*uy;
+  let t = uu === 0 ? 0 : (vx*ux + vy*uy) / uu; // projection scalar
+  if (t < 0) t = 0;
+  else if (t > 1) t = 1;
+  const cx = a[0] + t*ux, cy = a[1] + t*uy;
+  const dx = p[0] - cx, dy = p[1] - cy;
+  return dx*dx + dy*dy;
+}
+
+function verifyMicPolygon(vertices, center, radius, eps = 1e-12) {
+  // 1) center must be inside or on boundary
+  if (!isPointInPolygon(center, vertices)) {
+    throw new Error("Center is not inside polygon");
+  }
+  const r2 = radius * radius;
+
+  // 2) clearance to every finite edge must be >= r
+  let minD2 = Infinity, minEdge = -1;
+  for (let i = 0; i < vertices.length; ++i) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    const d2 = dist2PointToSegment(center, a, b);
+    if (d2 < minD2) { minD2 = d2; minEdge = i; }
+  }
+
+  // If the circle pokes through any edge interior, minD2 will be < r2
+  if (minD2 + eps < r2) {
+    throw new Error(`NOT a MIC: edge ${minEdge} is closer than radius (clearance=${Math.sqrt(minD2)}, r=${radius})`);
+  }
+
+  // Optional: if you want to ensure "tangency" really happens,
+  // check |minD2 - r2| <= tol and maybe count how many features hit the minimum.
+  return { ok: true, limitingEdge: minEdge, clearance: Math.sqrt(minD2) };
+}
+
+// This is not good enough for testing that a circle is a MIC - look at verifyMicPolygon!
 function verifyMic(points, center, radius) {
   for (let point of points) {
     if (Math.abs(distanceSquared(point, center) - radius * radius) < 0.0000000001) {
@@ -482,12 +522,58 @@ function findBestResult(results, points) {
   return bestResult;
 }
 
+/**
+ * Generates a realistic circle trace simulating manufacturing imperfections.
+ *
+ * @param {object} options - The configuration options for the trace.
+ * @param {number} [options.radius=100] - The average radius of the circle.
+ * @param {number} [options.numPoints=720] - The number of data points to generate for the trace.
+ * @param {number} [options.lobes=3] - The number of primary lobes or undulations (e.g., 3 for a 3-jaw chuck). Set to 0 for none.
+ * @param {number} [options.lobeAmplitude=2] - The magnitude of the lobing waviness. Higher values mean more pronounced lobes.
+ * @param {number} [options.noiseLevel=0.5] - The magnitude of random, high-frequency noise (surface roughness/chatter).
+ * @returns {Array<[number, number]>} An array of [x, y] coordinate pairs.
+ */
+function generateCircleTrace({
+  radius = 100,
+  numPoints = 720,
+  lobes = 3,
+  lobeAmplitude = 2,
+  noiseLevel = 0.5
+} = {}) {
+  const tracePoints = [];
+  const angleIncrement = (2 * Math.PI) / numPoints;
+
+  for (let i = 0; i < numPoints; i++) {
+    const angle = i * angleIncrement;
+
+    // 1. Calculate the periodic lobing effect
+    const lobeEffect = lobeAmplitude * Math.cos(angle * lobes);
+
+    // 2. Generate random noise for surface roughness
+    const randomNoise = (Math.random() - 0.5) * 2 * noiseLevel;
+
+    // 3. Combine effects to get the final radius at this angle
+    const currentRadius = radius + lobeEffect + randomNoise;
+
+    // 4. Convert polar coordinates (radius, angle) to Cartesian (x, y)
+    const x = currentRadius * Math.cos(angle);
+    const y = currentRadius * Math.sin(angle);
+
+    tracePoints.push([x, y]);
+  }
+
+  return tracePoints;
+}
 
 // const url = "http://localhost:5000/nist/cir2d22.ds";
 readPointsFromURL(nistData)
   .then(points => {
     if (points) {
-      console.log(randomNormalDistribution(0, 50));
+      const res = verifyMicPolygon(points, [-600.5093622669094, -428.713435109361], 169.46236020895796);
+      console.log(res);
+      if (true) {
+        return;
+      }
       const curvePoints = getCurvePoints(points.flatMap(pair => pair), 0.5, 25, true);
       const curvePoints2 = getCurvePoints2(points.flatMap(pair => pair), 0.5, 25, true);
 
@@ -496,13 +582,17 @@ readPointsFromURL(nistData)
       console.log(leastSquaresCircle);
 
       let timeStart = performance.now();
+
+      /*
       const bruceForceMic = bruteForceMic(points);
       console.log("Brute force time: " + (performance.now() - timeStart) + " milliseconds");
       console.log("Bruce force MIC:");
       console.log(bruceForceMic);
+      */
 
       console.log("Gradient descent best solution for MIC:");
       printCircleResult(gradientDescent(points, "MIC", leastSquaresCircle));
+      
       console.log("(Adaptive) gradient descent for MIC:");
       printCircleResult(adaptiveGradientDescent(points, "MIC", leastSquaresCircle));
 
@@ -516,6 +606,9 @@ readPointsFromURL(nistData)
       console.log("(Adaptive) gradient descent for MZC:");
       printCircleResult(adaptiveGradientDescent(points, "MZC", leastSquaresCircle));
 
+      if (true) {
+        return;
+      }
       // We should use the order of max radius - min radius to determine the stepSize for neighbors.
       const maxRadius = Math.sqrt(Math.max(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));
       const minRadius = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]))));

@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Autocollimator Twin‑Rail Analyzer</title>
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --panel: #131820;
+      --ink: #e9eef7;
+      --muted: #9fb0c7;
+      --accent: #57a2ff;
+      --accent2: #8bdc8b;
+      --accent3: #ff8aa1;
+      --warn: #ffbe55;
+      --red: #ff6b6b;
+      --grid: rgba(255, 255, 255, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      color: var(--ink);
+      background: linear-gradient(180deg, #0a0c10, #0f1116);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+
+    header {
+      padding: 18px 20px;
+      border-bottom: 1px solid #1f2632;
+      position: sticky;
+      top: 0;
+      background: rgba(10, 12, 16, 0.8);
+      backdrop-filter: blur(8px);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: .3px;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    @media (max-width: 980px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid #1f2632;
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .7px;
+    }
+
+    label {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    input[type="file"],
+    textarea,
+    select,
+    button {
+      width: 100%;
+      margin-top: 6px;
+    }
+
+    textarea {
+      min-height: 150px;
+      background: #0f141c;
+      color: var(--ink);
+      border: 1px solid #223047;
+      border-radius: 10px;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+    }
+
+    .dropzone {
+      border: 1.5px dashed #2b3950;
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+      color: var(--muted);
+      transition: .15s ease;
+      background: #0f141c;
+    }
+
+    .dropzone.dragover {
+      border-color: var(--accent);
+      color: var(--ink);
+      background: #0d1420;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .controls {
+      display: grid;
+      gap: 10px;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #0e1520;
+      border: 1px solid #223047;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .warn {
+      color: var(--warn);
+    }
+
+    .err {
+      color: var(--red);
+      font-weight: 600;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .summary .tile {
+      background: #0f141c;
+      border: 1px solid #223047;
+      border-radius: 12px;
+      padding: 12px;
+    }
+
+    .summary .tile .k {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .summary .tile .v {
+      font-weight: 700;
+      font-size: 16px;
+      margin-top: 4px;
+    }
+
+    svg.chart {
+      width: 100%;
+      height: 300px;
+      background: #0d1117;
+      border: 1px solid #1f2632;
+      border-radius: 12px;
+    }
+
+    .charts {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    th,
+    td {
+      text-align: right;
+      padding: 6px 8px;
+      border-bottom: 1px solid #1f2632;
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: left;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #10151d;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #0e1520;
+      border: 1px solid #223047;
+      padding: 6px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .pill input {
+      margin: 0;
+    }
+
+    .btn {
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: 10px;
+      padding: 10px 12px;
+      border: 1px solid #2a3549;
+      background: #101826;
+      color: #dfe9ff;
+      font-weight: 600;
+      transition: .15s ease;
+    }
+
+    .btn:hover {
+      background: #0f2038;
+      border-color: #274674;
+    }
+
+    .btn:disabled {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+
+    .footer {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 10px;
+    }
+
+    .legend {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .legend .key {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Autocollimator Twin‑Rail Analyzer — Angles ➜ Displacement ➜ Straightness ➜ Parallelism</h1>
+  </header>
+
+  <main>
+    <section class="card" id="ingest">
+      <h2>Input</h2>
+      <div class="controls">
+        <div class="dropzone" id="dropzone">Drop CSV here or click to choose a file</div>
+        <input type="file" id="file" accept=".csv,text/csv" style="display:none" />
+
+        <label for="csv">…or paste CSV (headers optional). Expected columns: <b>x</b> (mm), <b>thetaA</b> (arcsec),
+          <b>thetaB</b> (arcsec).</label>
+        <textarea id="csv"
+          placeholder="x,thetaA,thetaB\n0,2.0,1.5\n100,1.0,0.5\n200,0.0,0.0\n300,-1.0,-0.5\n400,-2.0,-1.0"></textarea>
+
+        <div class="row">
+          <div>
+            <label>Integration Method</label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+              <label class="pill"><input type="radio" name="method" value="trapezoid" checked /> Trapezoid</label>
+              <label class="pill"><input type="radio" name="method" value="simpson" /> Simpson</label>
+              <label class="pill"><input type="radio" name="method" value="spline" /> Cubic spline</label>
+              <label class="pill"><input type="radio" name="method" value="compare" /> Compare all</label>
+            </div>
+            <div class="hint">Simpson requires equal spacing and an even number of intervals.</div>
+          </div>
+          <div>
+            <label>Options</label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+              <label class="pill"><input type="checkbox" id="detrendToggle" checked /> Remove best‑fit line</label>
+              <label class="pill"><input type="checkbox" id="showTable" checked /> Show data table</label>
+            </div>
+            <div class="hint">Detrending isolates straightness (and makes parallelism meaningful).</div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" id="analyze">Compute</button>
+          <button class="btn" id="download">Download results CSV</button>
+          <span id="status" class="badge">Idle</span>
+        </div>
+        <div id="error" class="err"></div>
+      </div>
+
+      <div class="footer">Tip: Use consistent step spacing (e.g., every 100 mm). Units: angles in arcseconds; positions
+        in millimetres.</div>
+    </section>
+
+    <section class="card" id="output">
+      <h2>Results</h2>
+      <div class="summary" id="summary">
+        <div class="tile">
+          <div class="k">Method</div>
+          <div class="v" id="tileMethod">—</div>
+        </div>
+        <div class="tile">
+          <div class="k">Points / span</div>
+          <div class="v" id="tilePoints">—</div>
+        </div>
+        <div class="tile">
+          <div class="k">Parallelism P‑V</div>
+          <div class="v" id="tilePV">—</div>
+        </div>
+      </div>
+
+      <div style="margin-top:10px;" class="legend">
+        <div class="key"><span class="swatch" style="background: var(--accent)"></span> Rail A residual</div>
+        <div class="key"><span class="swatch" style="background: var(--accent2)"></span> Rail B residual</div>
+        <div class="key"><span class="swatch" style="background: var(--accent3)"></span> Parallelism (A − B)</div>
+      </div>
+
+      <div class="charts" style="margin-top:10px;">
+        <svg class="chart" id="chartResiduals"></svg>
+        <svg class="chart" id="chartParallel"></svg>
+      </div>
+
+      <div style="margin-top:12px; display:none;" id="tableWrap">
+        <table id="table"></table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ---------- CSV ingest ----------
+    function parseCSV(text) {
+      // tolerate commas / semicolons / tabs
+      const delim = (text.indexOf('\t') >= 0) ? '\t' : (text.indexOf(';') >= 0 ? ';' : ',');
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+      if (lines.length === 0) throw new Error('No data');
+      const tryHeader = lines[0].toLowerCase();
+      let startIdx = 0; let header = null;
+      if (/[a-z]/.test(tryHeader)) { header = lines[0].split(delim).map(s => s.trim().toLowerCase()); startIdx = 1; }
+      const rows = []; for (let i = startIdx; i < lines.length; i++) { rows.push(lines[i].split(delim).map(s => s.trim())); }
+      // Map columns: accept x | position | pos; thetaA | a | raila; thetaB | b | railb
+      let ix = 0, ia = 1, ib = 2;
+      if (header) {
+        const map = (names) => header.findIndex(h => names.includes(h));
+        ix = map(['x', 'position', 'pos', 'x_mm', 'mm', 'distance']);
+        ia = map(['thetaa', 'a', 'raila', 'theta_a', 'anglea', 'angle_a']);
+        ib = map(['thetab', 'b', 'railb', 'theta_b', 'angleb', 'angle_b']);
+        if (ix < 0 || ia < 0 || ib < 0) throw new Error('Could not find required columns (x, thetaA, thetaB)');
+      } else if (rows[0].length < 3) {
+        throw new Error('Need 3 columns: x, thetaA, thetaB');
+      }
+      const x = [], A = [], B = [];
+      for (const r of rows) {
+        const vx = Number(r[ix]); const va = Number(r[ia]); const vb = Number(r[ib]);
+        if (!isFinite(vx) || !isFinite(va) || !isFinite(vb)) continue;
+        x.push(vx); A.push(va); B.push(vb);
+      }
+      if (x.length < 2) throw new Error('Not enough valid rows');
+      // ensure strictly increasing x
+      for (let i = 1; i < x.length; i++) { if (!(x[i] > x[i - 1])) throw new Error('x must be strictly increasing'); }
+      return { x, A, B };
+    }
+
+    // ---------- Simple charts ----------
+    function drawChart(svgEl, xVals, series, opts = {}) {
+      const W = svgEl.clientWidth || 800; const H = svgEl.clientHeight || 300; svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+      const padL = 50, padR = 15, padT = 12, padB = 28; const w = W - padL - padR, h = H - padT - padB;
+
+      const xmin = Math.min(...xVals), xmax = Math.max(...xVals);
+      // y domain across all visible series
+      let ymin = Infinity, ymax = -Infinity;
+      for (const s of series) { if (!s) continue; for (const v of s.values) { if (!isFinite(v)) continue; ymin = Math.min(ymin, v); ymax = Math.max(ymax, v); } }
+      if (ymin === Infinity) { ymin = -1; ymax = 1; }
+      if (approxEqual(ymin, ymax)) { ymin -= 1; ymax += 1; }
+      // add 10% padding
+      const ypad = 0.1 * (ymax - ymin); ymin -= ypad; ymax += ypad;
+
+      const xToPx = x => padL + ((x - xmin) / (xmax - xmin)) * w;
+      const yToPx = y => padT + h - ((y - ymin) / (ymax - ymin)) * h;
+
+      // grid
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const gridN = 6;
+      for (let i = 0; i <= gridN; i++) {
+        const x = padL + (i / gridN) * w; const y = padT + (i / gridN) * h;
+        const vLine = document.createElementNS('http://www.w3.org/2000/svg', 'line'); vLine.setAttribute('x1', x); vLine.setAttribute('x2', x); vLine.setAttribute('y1', padT); vLine.setAttribute('y2', padT + h); vLine.setAttribute('stroke', 'var(--grid)'); svgEl.appendChild(vLine);
+        const hLine = document.createElementNS('http://www.w3.org/2000/svg', 'line'); hLine.setAttribute('x1', padL); hLine.setAttribute('x2', padL + w); hLine.setAttribute('y1', y); hLine.setAttribute('y2', y); hLine.setAttribute('stroke', 'var(--grid)'); svgEl.appendChild(hLine);
+      }
+
+      // axes labels (min/mid/max)
+      function text(x, y, txt, anchor = 'middle') {
+        const t = document.createElementNS('http://www.w3.org/2000/svg', 'text'); t.setAttribute('x', x); t.setAttribute('y', y); t.setAttribute('fill', '#9fb0c7'); t.setAttribute('font-size', '10'); t.setAttribute('text-anchor', anchor); t.textContent = txt; svgEl.appendChild(t);
+      }
+      text(padL, padT + h + 18, xmin.toFixed(0), 'start');
+      text(padL + w / 2, padT + h + 18, ((xmin + xmax) / 2).toFixed(0));
+      text(padL + w, padT + h + 18, xmax.toFixed(0), 'end');
+      text(8, padT + h, ymax.toFixed(3), 'start');
+      text(8, padT + h / 2, ((ymin + ymax) / 2).toFixed(3), 'start');
+      text(8, padT + 10, ymin.toFixed(3), 'start');
+
+      // zero line if in range
+      if (ymin < 0 && ymax > 0) { const y0 = yToPx(0); const z = document.createElementNS('http://www.w3.org/2000/svg', 'line'); z.setAttribute('x1', padL); z.setAttribute('x2', padL + w); z.setAttribute('y1', y0); z.setAttribute('y2', y0); z.setAttribute('stroke', '#334155'); z.setAttribute('stroke-dasharray', '4 4'); svgEl.appendChild(z); }
+
+      // plot series
+      for (const s of series) {
+        if (!s) continue; const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        let d = ''; for (let i = 0; i < xVals.length; i++) { const X = xToPx(xVals[i]); const Y = yToPx(s.values[i]); d += (i ? 'L' : 'M') + X + ',' + Y; }
+        path.setAttribute('d', d); path.setAttribute('fill', 'none'); path.setAttribute('stroke', s.color || 'white'); path.setAttribute('stroke-width', s.width || 2); svgEl.appendChild(path);
+      }
+
+      // axis titles
+      text(padL + w / 2, H - 6, opts.xLabel || 'Position x (mm)');
+      text(14, padT + 12, opts.yLabel || 'Value (µm)', 'start');
+    }
+
+    // ---------- UI wiring ----------
+    const dz = document.getElementById('dropzone');
+    const fileInput = document.getElementById('file');
+    dz.addEventListener('click', () => fileInput.click());
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+    dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('dragover'); const f = e.dataTransfer.files?.[0]; if (f) readFile(f); });
+    fileInput.addEventListener('change', e => { const f = e.target.files?.[0]; if (f) readFile(f); });
+
+    function readFile(f) { const reader = new FileReader(); reader.onload = () => { document.getElementById('csv').value = reader.result; setStatus(`Loaded file: ${f.name}`); }; reader.readAsText(f); }
+
+    function setStatus(msg) { document.getElementById('status').textContent = msg; }
+    function setError(msg) { document.getElementById('error').textContent = msg || ''; }
+
+    document.getElementById('analyze').addEventListener('click', run);
+    document.getElementById('download').addEventListener('click', downloadCSV);
+
+    function getMethod() { const v = [...document.querySelectorAll('input[name="method"]')].find(r => r.checked)?.value || 'trapezoid'; return v; }
+
+    function run() {
+      setError('');
+      try {
+        const text = document.getElementById('csv').value.trim();
+        const { x, A, B } = parseCSV(text);
+        const method = getMethod();
+        const detrendOn = document.getElementById('detrendToggle').checked;
+        const eqSpacing = isEqualSpacing(x);
+        const intervals = x.length - 1;
+        if (method === 'simpson') {
+          if (!eqSpacing) throw new Error('Simpson selected but spacing is not equal.');
+          if (intervals % 2 !== 0) throw new Error('Simpson requires an even number of intervals.');
+        }
+
+        const results = (method === 'compare') ?
+          {
+            trapezoid: parallelismFromRails(x, A, B, 'trapezoid', detrendOn),
+            simpson: eqSpacing && intervals % 2 === 0 ? parallelismFromRails(x, A, B, 'simpson', detrendOn) : null,
+            spline: parallelismFromRails(x, A, B, 'spline', detrendOn)
+          } :
+          { [method]: parallelismFromRails(x, A, B, method, detrendOn) };
+
+        render(results, x, method, eqSpacing);
+        setStatus('Done');
+      } catch (e) {
+        setError(e.message);
+        setStatus('Error');
+      }
+    }
+
+    function isEqualSpacing(x) { if (x.length < 3) return true; const h0 = x[1] - x[0]; for (let i = 1; i < x.length - 1; i++) { if (!approxEqual((x[i + 1] - x[i]), h0, 1e-9)) return false; } return true; }
+
+    function render(results, x, method, eqSpacing) {
+      const tableWrap = document.getElementById('tableWrap');
+      const showTable = document.getElementById('showTable').checked;
+      tableWrap.style.display = showTable ? 'block' : 'none';
+
+      const methodLabel = (m) => ({ trapezoid: 'Trapezoid', simpson: 'Simpson', spline: 'Cubic spline' })[m] || m;
+
+      // Summary tiles
+      const span = (x[x.length - 1] - x[0]).toFixed(0);
+      let pvText = '—';
+      let methodText = (method === 'compare') ? 'Compare: Trap / Simp / Spline' : methodLabel(method);
+      let firstRes = results[Object.keys(results)[0]];
+      if (firstRes) { pvText = `${firstRes.pvUm.toFixed(5)} µm`; }
+      document.getElementById('tileMethod').textContent = methodText + (eqSpacing ? '' : ' (unequal spacing)');
+      document.getElementById('tilePoints').textContent = `${x.length} pts / ${span} mm`;
+      document.getElementById('tilePV').textContent = pvText;
+
+      // Charts: always plot residuals & parallelism for chosen/available result(s)
+      const residualSvg = document.getElementById('chartResiduals');
+      const parallelSvg = document.getElementById('chartParallel');
+
+      if (method === 'compare') {
+        // Plot SPLINE residuals as primary, overlay trapezoid + simpson as thin lines (parallelism chart only)
+        const R_spline = results.spline; const R_trap = results.trapezoid; const R_simp = results.simpson;
+        drawChart(residualSvg, x, [
+          R_spline ? { values: R_spline.railA.residualsUm, color: 'var(--accent)', width: 2 } : null,
+          R_spline ? { values: R_spline.railB.residualsUm, color: 'var(--accent2)', width: 2 } : null,
+        ], { xLabel: 'Position x (mm)', yLabel: 'Residuals (µm)' });
+
+        const series = [];
+        if (R_trap) series.push({ values: R_trap.pUm, color: 'var(--accent3)', width: 2 });
+        if (R_simp) series.push({ values: R_simp.pUm, color: '#ffdd57', width: 2 });
+        if (R_spline) series.push({ values: R_spline.pUm, color: '#7bdfff', width: 2 });
+        drawChart(parallelSvg, x, series, { xLabel: 'Position x (mm)', yLabel: 'Parallelism (µm)' });
+      } else {
+        const R = results[method];
+        drawChart(residualSvg, x, [
+          { values: R.railA.residualsUm, color: 'var(--accent)', width: 2 },
+          { values: R.railB.residualsUm, color: 'var(--accent2)', width: 2 },
+        ], { xLabel: 'Position x (mm)', yLabel: 'Residuals (µm)' });
+        drawChart(parallelSvg, x, [{ values: R.pUm, color: 'var(--accent3)', width: 2 }], { xLabel: 'Position x (mm)', yLabel: 'Parallelism (µm)' });
+      }
+
+      // Table
+      if (showTable) {
+        const table = document.getElementById('table');
+        while (table.firstChild) table.removeChild(table.firstChild);
+        const thead = document.createElement('thead'); const trH = document.createElement('tr');
+        const headers = ['x (mm)', 'y_A (µm)', 'y_B (µm)', 'r_A (µm)', 'r_B (µm)', 'p = r_A - r_B (µm)'];
+        headers.forEach(h => { const th = document.createElement('th'); th.textContent = h; trH.appendChild(th); });
+        thead.appendChild(trH); table.appendChild(thead);
+        const tbody = document.createElement('tbody');
+
+        const methodKey = (method === 'compare') ? (results.spline ? 'spline' : (results.trapezoid ? 'trapezoid' : Object.keys(results)[0])) : method;
+        const R = results[methodKey];
+        for (let i = 0; i < x.length; i++) {
+          const tr = document.createElement('tr');
+          const cells = [x[i].toFixed(3), R.yA_um[i]?.toFixed(6), R.yB_um[i]?.toFixed(6), R.railA.residualsUm[i]?.toFixed(6), R.railB.residualsUm[i]?.toFixed(6), R.pUm[i]?.toFixed(6)];
+          cells.forEach(c => { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); });
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+      }
+    }
+
+    function downloadCSV() {
+      try {
+        const text = document.getElementById('csv').value.trim(); const { x, A, B } = parseCSV(text);
+        const method = getMethod(); const detrendOn = document.getElementById('detrendToggle').checked;
+        const methods = method === 'compare' ? ['trapezoid', 'simpson', 'spline'] : [method];
+        const parts = [];
+        for (const m of methods) {
+          try {
+            const eq = isEqualSpacing(x), even = (x.length - 1) % 2 === 0;
+            if (m === 'simpson' && (!eq || !even)) continue;
+            const R = parallelismFromRails(x, A, B, m, detrendOn);
+            parts.push(`# Method: ${m}, P-V = ${R.pvUm.toFixed(6)} µm`);
+            parts.push('x_mm,yA_um,yB_um,rA_um,rB_um,parallel_um');
+            for (let i = 0; i < x.length; i++) parts.push([x[i], R.yA_um[i], R.yB_um[i], R.railA.residualsUm[i], R.railB.residualsUm[i], R.pUm[i]].join(','));
+            parts.push('');
+          } catch (e) { }
+        }
+        const blob = new Blob([parts.join('\n')], { type: 'text/csv' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'autocollimator_results.csv'; a.click(); URL.revokeObjectURL(a.href);
+      } catch (e) { setError(e.message); }
+    }
+
+    // Load example data into the page on first paint
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('csv').value = `x,thetaA,thetaB\n0,2.0,1.5\n100,1.0,0.5\n200,0.0,0.0\n300,-1.0,-0.5\n400,-2.0,-1.0`;
+      run();
+    });
+  </script>
+</body>
+
+</html>
