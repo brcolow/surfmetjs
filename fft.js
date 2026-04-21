@@ -26,7 +26,7 @@ function FFT(size) {
   if (this.size <= 1 || (this.size & (this.size - 1)) !== 0)
     throw new Error('FFT size must be a power of two and bigger than 1');
 
-  this._csize = size << 1;
+  this._csize = this.size << 1;
 
   const table = new Array(this.size * 2);
   for (let i = 0; i < table.length; i += 2) {
@@ -42,7 +42,7 @@ function FFT(size) {
     power++;
 
   // Calculate initial step's width:
-  //   * If we are full radix-4 - it is 2x smaller to give inital len=8
+  //   * If we are full radix-4 - it is 2x smaller to give initial len=8
   //   * Otherwise it is the same as `power` to give len=4
   this._width = power % 2 === 0 ? power - 1 : power;
 
@@ -69,10 +69,7 @@ FFT.prototype.fromComplexArray = function fromComplexArray(complex, storage) {
 };
 
 FFT.prototype.createComplexArray = function createComplexArray() {
-  const res = new Array(this._csize);
-  for (let i = 0; i < res.length; i++)
-    res[i] = 0;
-  return res;
+  return new Array(this._csize).fill(0);
 };
 
 FFT.prototype.toComplexArray = function toComplexArray(input, storage) {
@@ -87,7 +84,7 @@ FFT.prototype.toComplexArray = function toComplexArray(input, storage) {
 FFT.prototype.completeSpectrum = function completeSpectrum(spectrum) {
   const size = this._csize;
   const half = size >>> 1;
-  for (var i = 2; i < half; i += 2) {
+  for (let i = 2; i < half; i += 2) {
     spectrum[size - i] = spectrum[i];
     spectrum[size - i + 1] = -spectrum[i + 1];
   }
@@ -523,4 +520,4 @@ FFT.prototype._singleRealTransform4 = function _singleRealTransform4(outOff,
   out[outOff + 7] = FDi;
 };
 
-export { FFT }
+export { FFT };

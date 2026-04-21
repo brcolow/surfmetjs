@@ -1,176 +1,101 @@
-/*!	Curve calc function for canvas 3.0.1
- *	(c) Epistemex 2013-2018, 2024
- *	License: MIT
+/*! Curve calc function for canvas 3.0.1
+ *  (c) Epistemex 2013-2018, 2024
+ *  License: MIT
  */
 
- 'use strict';
+'use strict';
 
- /**
-  * Calculates an array containing points representing a cardinal spline through given point array.
-  * Points must be arranged as: [x1, y1, x2, y2, ..., xn, yn].
-  *
-  * There must be a minimum of two points in the input array but the function
-  * is only useful where there are three points or more.
-  *
-  * The points for the cardinal spline are returned as a new array.
-  *
-  * @param {Array} points - point array
-  * @param {Number} [tension=0.5] - tension. Typically between [0.0, 1.0] but can be exceeded
-  * @param {Number} [numOfSeg=25] - number of segments between two points (line resolution)
-  * @param {Boolean} [closed=false] - Close the ends making the line continuous
-  * @returns {Float32Array} New array with the calculated points that was added to the path
-  */
- function getCurvePoints(points, tension = 0.5, numOfSeg = 25, closed = false) {
-   if (typeof points === "undefined" || points.length < 2) {
-     return new Float32Array(0);
-   }
- 
-   if (numOfSeg < 1) {
-     throw new Error('Number of segments cannot be less than one.');
-   }
- 
-   let ptsClone;                                                       // for cloning point array
-   let i = 1;
-   let l = points.length;
-   let resPos = 0;
-   let cachePtr = 4;
- 
-   const resLength = (l - 2) * numOfSeg + 2 + (closed ? 2 * numOfSeg : 0);
-   const result = new Float32Array(resLength);
-   const cache = new Float32Array((numOfSeg + 2) << 2);
- 
-   ptsClone = points.slice(0);
- 
-   if (closed) {
-     ptsClone.unshift(points[l - 1]);                                // insert end point as first point
-     ptsClone.unshift(points[l - 2]);
-     ptsClone.push(points[0], points[1]);                            // first point as last point
-   }
-   else {
-     ptsClone.unshift(points[1]);                                    // copy 1. point and insert at beginning
-     ptsClone.unshift(points[0]);
-     ptsClone.push(points[l - 2], points[l - 1]);                    // duplicate end-points
-   }
- 
-   // cache inner-loop calculations as they are based on t alone
-   cache[0] = 1;                                                       // 1,0,0,0
- 
-   for(; i < numOfSeg; i++) {
-     const st = i / numOfSeg;
-     const st2 = st * st;
-     const st3 = st2 * st;
-     const st23 = st3 * 2;
-     const st32 = st2 * 3;
- 
-     cache[cachePtr++] = st23 - st32 + 1;                            // c1
-     cache[cachePtr++] = st32 - st23;                                // c2
-     cache[cachePtr++] = st3 - 2 * st2 + st;                         // c3
-     cache[cachePtr++] = st3 - st2;                                  // c4
-   }
- 
-   cache[++cachePtr] = 1;                                              // 0,1,0,0
- 
-   // calc. points
- 
-   fill(ptsClone, cache, l, tension);
- 
-   if (closed) {
-     //l = points.length;
-     ptsClone = [];
-     ptsClone.push(points[l - 4], points[l - 3],
-       points[l - 2], points[l - 1],                               // second last and last
-       points[0], points[1],
-       points[2], points[3]);                                      // first and second
-     fill(ptsClone, cache, 4, tension);
-   }
- 
-   function fill(pts, cache, l, tension) {
-     for(let i = 2; i < l; i += 2) {
-       const pt1 = pts[i];                                         // x1
-       const pt2 = pts[i + 1];                                     // y1
-       const pt3 = pts[i + 2];                                     // x2
-       const pt4 = pts[i + 3];                                     // y2
- 
-       const t1x = (pt3 - pts[i - 2]) * tension;                   // x2-x0
-       const t1y = (pt4 - pts[i - 1]) * tension;                   // y2-y0
-       const t2x = (pts[i + 4] - pt1) * tension;                   // x3-x1
-       const t2y = (pts[i + 5] - pt2) * tension;                   // y3-y1
-       let c = 0, c1, c2, c3, c4;
- 
-       for(let t = 0; t < numOfSeg; t++) {
-         c1 = cache[c++];
-         c2 = cache[c++];
-         c3 = cache[c++];
-         c4 = cache[c++];
- 
-         result[resPos++] = c1 * pt1 + c2 * pt3 + c3 * t1x + c4 * t2x;
-         result[resPos++] = c1 * pt2 + c2 * pt4 + c3 * t1y + c4 * t2y;
-       }
-     }
-   }
- 
-   // append last point
-   l = closed ? 0 : points.length - 2;
-   result[resPos++] = points[l++];
-   result[resPos] = points[l];
- 
-   return result
- }
-
- function getCurvePoints2(points, tension = 0.5, numOfSeg = 25, closed = false) {
-  if (points.length < 2) {
+/**
+ * Calculates a flattened point array representing a cardinal spline through
+ * the given flattened point array: [x1, y1, x2, y2, ..., xn, yn].
+ *
+ * The returned points include each segment start and the final endpoint. For
+ * closed splines, the final endpoint is the first input point.
+ *
+ * @param {Array<number>|TypedArray} points - Flattened point array.
+ * @param {number} [tension=0.5] - Tangent scale.
+ * @param {number} [numOfSeg=25] - Number of samples per segment.
+ * @param {boolean} [closed=false] - Whether to close the spline.
+ * @returns {Float32Array} Flattened spline points.
+ */
+function getCurvePoints(points, tension = 0.5, numOfSeg = 25, closed = false) {
+  if (!points || points.length < 2) {
     return new Float32Array(0);
   }
 
-  // Pre-calculate constants
-  const numSegments = (points.length - 2) * numOfSeg + 2 + (closed ? 2 * numOfSeg : 0);
-  const cacheSize = (numOfSeg + 2) << 2;
-  const cache = new Float32Array(cacheSize);
+  validateSplineInput(points, numOfSeg);
 
-  // Initialize cache
-  cache[0] = 1;
-  for (let i = 1; i < numOfSeg; i++) {
-    const st = i / numOfSeg;
-    const st2 = st * st;
-    const st3 = st2 * st;
-    const st23 = st3 * 2;
-    const st32 = st2 * 3;
-    cache[i * 4] = st23 - st32 + 1;
-    cache[i * 4 + 1] = st32 - st23;
-    cache[i * 4 + 2] = st3 - 2 * st2 + st;
-    cache[i * 4 + 3] = st3 - st2;
+  const pointCount = points.length / 2;
+  if (pointCount < 2) {
+    return new Float32Array(0);
   }
-  cache[cacheSize - 4] = 1;
 
-  // Calculate control points and fill result array
-  const result = new Float32Array(numSegments);
-  let resPos = 0;
-  const adjustedPoints = closed
-  ? [...points, ...points.slice(0, 2)] // Duplicate the first two points
-  : [...points.slice(0, 2), ...points, ...points.slice(-2)];
-  
-  for (let i = 2; i < adjustedPoints.length; i += 2) {
-    const pt1 = adjustedPoints[i - 2];
-    const pt2 = adjustedPoints[i - 1];
-    const pt3 = adjustedPoints[i];
-    const pt4 = adjustedPoints[i + 1];
-    const t1x = (pt3 - pt1) * tension;
-    const t1y = (pt4 - pt2) * tension;
-    const t2x = (adjustedPoints[i + 2] - pt1) * tension;
-    const t2y = (adjustedPoints[i + 3] - pt2) * tension;
+  const segmentCount = closed ? pointCount : pointCount - 1;
+  const result = new Float32Array((segmentCount * numOfSeg + 1) * 2);
+  let resultIndex = 0;
 
-    for (let j = 0; j < numOfSeg; j++) {
-      const c1 = cache[j * 4];
-      const c2 = cache[j * 4 + 1];
-      const c3 = cache[j * 4 + 2];
-      const c4 = cache[j * 4 + 3];
-      result[resPos++] = c1 * pt1 + c2 * pt3 + c3 * t1x + c4 * t2x;
-      result[resPos++] = c1 * pt2 + c2 * pt4 + c3 * t1y + c4 * t2y;
+  for (let segment = 0; segment < segmentCount; segment++) {
+    const p0 = getControlPoint(points, segment - 1, pointCount, closed);
+    const p1 = getControlPoint(points, segment, pointCount, closed);
+    const p2 = getControlPoint(points, segment + 1, pointCount, closed);
+    const p3 = getControlPoint(points, segment + 2, pointCount, closed);
+    const tangent1 = [
+      (p2[0] - p0[0]) * tension,
+      (p2[1] - p0[1]) * tension
+    ];
+    const tangent2 = [
+      (p3[0] - p1[0]) * tension,
+      (p3[1] - p1[1]) * tension
+    ];
+
+    for (let step = 0; step < numOfSeg; step++) {
+      const t = step / numOfSeg;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const h00 = 2 * t3 - 3 * t2 + 1;
+      const h10 = t3 - 2 * t2 + t;
+      const h01 = -2 * t3 + 3 * t2;
+      const h11 = t3 - t2;
+
+      result[resultIndex++] = h00 * p1[0] + h10 * tangent1[0] + h01 * p2[0] + h11 * tangent2[0];
+      result[resultIndex++] = h00 * p1[1] + h10 * tangent1[1] + h01 * p2[1] + h11 * tangent2[1];
     }
   }
 
+  const finalPoint = closed
+    ? getControlPoint(points, 0, pointCount, closed)
+    : getControlPoint(points, pointCount - 1, pointCount, closed);
+  result[resultIndex++] = finalPoint[0];
+  result[resultIndex] = finalPoint[1];
+
   return result;
 }
- 
- export { getCurvePoints, getCurvePoints2 };
- 
+
+function validateSplineInput(points, numOfSeg) {
+  if (points.length % 2 !== 0) {
+    throw new Error('Point array must contain x,y pairs.');
+  }
+
+  if (!Number.isInteger(numOfSeg) || numOfSeg < 1) {
+    throw new Error('Number of segments cannot be less than one.');
+  }
+}
+
+function getControlPoint(points, index, pointCount, closed) {
+  const pointIndex = closed
+    ? positiveModulo(index, pointCount)
+    : Math.max(0, Math.min(pointCount - 1, index));
+  const offset = pointIndex * 2;
+
+  return [points[offset], points[offset + 1]];
+}
+
+function positiveModulo(value, divisor) {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+function getCurvePoints2(points, tension = 0.5, numOfSeg = 25, closed = false) {
+  return getCurvePoints(points, tension, numOfSeg, closed);
+}
+
+export { getCurvePoints, getCurvePoints2 };

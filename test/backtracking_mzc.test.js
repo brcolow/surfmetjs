@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { adaptiveGradientDescent, objectiveFunctionMZCSmooth, gradient } from '../gradient_descent';
 
 describe('gradient descent', () => {
@@ -65,10 +65,16 @@ describe('adaptive gradient descent w/ more random like numbers', () => {
     [0.54362499, 0.93507242],
   ];
   const gamma = 200;
-  const minimizer = [0.08995785, 0.68466782];
+  const previousFixtureCenter = [0.08995785, 0.68466782];
+  const expectedCenter = [0.1353615, 0.6974915];
+
+  function zoneWidth(center) {
+    const radii = P.map(([x, y]) => Math.hypot(x - center[0], y - center[1]));
+    return Math.max(...radii) - Math.min(...radii);
+  }
 
   describe('adaptive gradient descent', () => {
-    it('should descent towards [0, 0]', () => {
+    it('should descend to a lower-width MZC center', () => {
       let adGD;
 
       adGD = adaptiveGradientDescent(
@@ -79,8 +85,9 @@ describe('adaptive gradient descent w/ more random like numbers', () => {
         0.5,
         0.25
       );
-      expect(adGD.center[0]).toBeCloseTo(minimizer[0], 4);
-      expect(adGD.center[1]).toBeCloseTo(minimizer[1], 4);
+      expect(adGD.center[0]).toBeCloseTo(expectedCenter[0], 4);
+      expect(adGD.center[1]).toBeCloseTo(expectedCenter[1], 4);
+      expect(adGD.zoneWidth).toBeLessThan(zoneWidth(previousFixtureCenter));
     });
   });
 

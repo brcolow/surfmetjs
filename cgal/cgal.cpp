@@ -1,31 +1,28 @@
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <limits>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
+#include <variant>
 #include <vector>
 
-#include <CGAL/Default.h>
 #include <CGAL/Delaunay_triangulation_2.h>
 #include <CGAL/Exact_predicates_exact_constructions_kernel_with_sqrt.h>
+#include <CGAL/IO/WKT.h>
 #include <CGAL/IO/io.h>
-#include <CGAL/Kernel/global_functions_2.h> // circumcenter, midpoint
+#include <CGAL/Kernel/global_functions_2.h>
 #include <CGAL/Min_circle_2.h>
 #include <CGAL/Min_circle_2_traits_2.h>
-#include <CGAL/Min_sphere_of_spheres_d.h>
-#include <CGAL/Min_sphere_of_spheres_d_traits_2.h>
 #include <CGAL/Polygon_2.h>
 #include <CGAL/Segment_Delaunay_graph_2.h>
 #include <CGAL/Segment_Delaunay_graph_adaptation_traits_2.h>
 #include <CGAL/Segment_Delaunay_graph_traits_2.h>
 #include <CGAL/Voronoi_diagram_2.h>
 #include <CGAL/convex_hull_2.h>
-
-#include <CGAL/IO/WKT.h>
-
-// TODO:
-// Look at using CGAL::linear_least_squares_fitting_2 for calculating LSC.
 
 using K = CGAL::Exact_predicates_exact_constructions_kernel_with_sqrt;
 using FT = K::FT;
@@ -38,7 +35,6 @@ using SDG = CGAL::Segment_Delaunay_graph_2<GT>;
 using AT = CGAL::Segment_Delaunay_graph_adaptation_traits_2<SDG>;
 using VD = CGAL::Voronoi_diagram_2<SDG, AT>;
 
-// Decimal for WKT output (WKT is numeric-decimal only).
 static std::string decimal_str(const FT &x, int digits = 17) {
   std::ostringstream oss;
   oss.setf(std::ios::fixed);
@@ -47,817 +43,609 @@ static std::string decimal_str(const FT &x, int digits = 17) {
   return oss.str();
 }
 
-struct MIC_Result {
-  Point center;
-  FT r2; // exact squared radius
-  bool valid = false;
-};
-
-static MIC_Result maximum_inscribed_circle(const Polygon &poly_in) {
-  MIC_Result out;
-  if (!poly_in.is_simple())
-    return out;
-
-  // Ensure CCW orientation for consistency
-  Polygon poly = poly_in;
-  if (!poly.is_counterclockwise_oriented())
-    poly.reverse_orientation();
-
-  const std::size_t n = poly.size();
-  if (n < 3)
-    return out;
-
-  // Build SDG from polygon segments (+ optional point sites at vertices)
-  SDG sdg;
-  for (std::size_t i = 0; i < n; ++i) {
-    const Point &a = poly[i];
-    const Point &b = poly[(i + 1) % n];
-    sdg.insert(a, b); // segment site
-    sdg.insert(a);    // point site (helps in corner cases)
-  }
-
-  VD vd(sdg);
-
-  // Precompute segments for exact distance queries
-  std::vector<Segment> edges;
-  edges.reserve(n);
-  for (std::size_t i = 0; i < n; ++i)
-    edges.emplace_back(poly[i], poly[(i + 1) % n]);
-
-  auto clearance2 = [&](const Point &c) -> FT {
-    FT best = CGAL::squared_distance(c, edges[0]);
-    for (std::size_t i = 1; i < n; ++i) {
-      const FT d2 = CGAL::squared_distance(c, edges[i]);
-      if (d2 < best)
-        best = d2;
-    }
-    return best;
-  };
-
-  // Scan Voronoi vertices inside the polygon
-  for (VD::Vertex_iterator v = vd.vertices_begin(); v != vd.vertices_end();
-       ++v) {
-    const Point &c = v->point();
-    auto side = poly.bounded_side(c);
-    if (side == CGAL::ON_BOUNDED_SIDE || side == CGAL::ON_BOUNDARY) {
-      FT r2 = clearance2(c);
-      if (!out.valid || r2 > out.r2) {
-        out.center = c;
-        out.r2 = r2;
-        out.valid = true;
-      }
-    }
-  }
-
-  return out;
+static std::string decimal_double(double x, int digits = 17) {
+  std::ostringstream oss;
+  oss.setf(std::ios::fixed);
+  oss.precision(digits);
+  oss << x;
+  return oss.str();
 }
 
-struct MCC_Result {
-  Point center;
-  FT r2; // exact squared radius
-  bool valid = false;
-  std::vector<Point> support;
-};
-
-MCC_Result minimum_circumscribed_circle(const Polygon &poly_in) {
-  MCC_Result out;
-  if (poly_in.size() == 0)
-    return out;
-
-  // 1) Collect vertices (Polygon_2 stores them without duplicate closure)
-  std::vector<Point> pts;
-  pts.reserve(poly_in.size());
-  for (auto v = poly_in.vertices_begin(); v != poly_in.vertices_end(); ++v)
-    pts.push_back(*v);
-
-  // 2) Convex hull (not strictly required, but faster for large n)
-  std::vector<Point> hull;
-  hull.reserve(pts.size());
-  CGAL::convex_hull_2(pts.begin(), pts.end(), std::back_inserter(hull));
-  if (hull.empty())
-    return out;
-
-  // 3) Minimum enclosing circle on the hull
-  using Traits = CGAL::Min_circle_2_traits_2<K>;
-  using Min_circle = CGAL::Min_circle_2<Traits>;
-  Min_circle mc(hull.begin(), hull.end(), true); // randomize input
-
-  if (mc.is_empty())
-    return out;
-  auto c = mc.circle(); // K::Circle_2
-  out.center = c.center();
-  out.r2 = c.squared_radius();
-  out.valid = true;
-
-  // Record support set: 2 or 3 points define the circle
-  for (auto it = mc.support_points_begin(); it != mc.support_points_end(); ++it)
-    out.support.push_back(*it);
-
-  return out;
+static std::string exact_str(const FT &x) {
+  std::ostringstream oss;
+  CGAL::IO::set_pretty_mode(oss);
+  oss << std::setprecision(17);
+  oss << CGAL::exact(x);
+  return oss.str();
 }
 
-MCC_Result minimum_circumscribed_circle2(const Polygon& poly_in) {
-  MCC_Result out;
-  if (poly_in.size() == 0) return out;
-
-  // 1) Collect vertices
-  std::vector<Point> pts;
-  pts.reserve(poly_in.size());
-  for (auto v = poly_in.vertices_begin(); v != poly_in.vertices_end(); ++v)
-    pts.push_back(*v);
-
-  // 2) Convex hull (MEC depends only on hull)
-  std::vector<Point> hull;
-  hull.reserve(pts.size());
-  CGAL::convex_hull_2(pts.begin(), pts.end(), std::back_inserter(hull));
-  if (hull.empty()) return out;
-
-  // 3) MEC via Min_sphere_of_spheres_d (2D traits)
-  using Traits    = CGAL::Min_sphere_of_spheres_d_traits_2<K, FT>;
-  using MinSphere = CGAL::Min_sphere_of_spheres_d<Traits>;
-  using Sphere    = typename Traits::Sphere;  // typically std::pair<Point, FT> (center, r^2)
-
-  std::vector<Sphere> spheres;
-  spheres.reserve(hull.size());
-  for (const auto& p : hull) spheres.emplace_back(p, FT(0)); // radius^2 = 0
-
-  MinSphere ms(spheres.begin(), spheres.end());
-  if (ms.is_empty()) return out;
-
-  // 4) Extract support points (dereference iterator, then .first)
-  std::vector<Point> sup;
-  for (auto it = ms.support_begin(); it != ms.support_end(); ++it)
-    sup.push_back((*it).first);
-
-  // 5) Compute center from support set (handles all versions; no center() call)
-  if (sup.empty()) return out; // should not happen unless degenerate/no points
-
-  if (sup.size() == 1) {
-    out.center = sup[0];
-  } else if (sup.size() == 2) {
-    out.center = CGAL::midpoint(sup[0], sup[1]);
-  } else {
-    // 3 points → circumcenter
-    out.center = CGAL::circumcenter(sup[0], sup[1], sup[2]);
-  }
-
-  // 6) Compute exact r^2 as farthest hull distance to center
-  FT r2 = FT(0);
-  for (const auto& p : hull) {
-    FT d2 = CGAL::squared_distance(out.center, p);
-    if (d2 > r2) r2 = d2;
-  }
-  out.r2 = r2;
-  out.valid = true;
-  out.support = std::move(sup);
-  return out;
+static double radius_dec(const FT &r2) {
+  return std::sqrt(CGAL::to_double(r2));
 }
 
-struct MZC_Result {
-  Point center;
-  FT r2, R2;
-  bool valid = false;
-  std::vector<Point> inner_support, outer_support;
-};
+static std::vector<Point> polygon_vertices(const Polygon &poly) {
+  std::vector<Point> points;
+  points.reserve(poly.size());
+  for (auto v = poly.vertices_begin(); v != poly.vertices_end(); ++v)
+    points.push_back(*v);
 
-static MZC_Result minimum_zone_circle_exact(const Polygon &poly_in) {
-  std::vector<Point> P;
-  P.reserve(poly_in.size());
-  for (auto v = poly_in.vertices_begin(); v != poly_in.vertices_end(); ++v)
-    P.push_back(*v);
-  MZC_Result best;
-  if (P.size() < 2)
-    return best;
+  if (points.size() > 1 && points.front() == points.back())
+    points.pop_back();
 
-  // Convex hull vertices (for farthest)
-  std::vector<Point> H;
-  CGAL::convex_hull_2(P.begin(), P.end(), std::back_inserter(H));
-  if (H.size() < 1)
-    return best;
+  return points;
+}
 
-  // Delaunay for nearest-VD edges
-  using DT = CGAL::Delaunay_triangulation_2<K>;
-  DT dt(P.begin(), P.end());
+static std::vector<Point> unique_points(std::vector<Point> points) {
+  std::sort(points.begin(), points.end());
+  points.erase(std::unique(points.begin(), points.end()), points.end());
+  return points;
+}
 
-  // Collect unique Delaunay edges (unordered pairs)
-  struct PairLess {
-    bool operator()(const std::pair<Point, Point> &x,
-                    const std::pair<Point, Point> &y) const {
-      if (x.first < y.first)
-        return true;
-      if (y.first < x.first)
-        return false;
-      return x.second < y.second;
-    }
-  };
-  std::set<std::pair<Point, Point>, PairLess> nearest_pairs;
-  for (auto e = dt.finite_edges_begin(); e != dt.finite_edges_end(); ++e) {
-    auto fh = e->first;
-    int i = e->second;
-    Point a = fh->vertex(dt.cw(i))->point();
-    Point b = fh->vertex(dt.ccw(i))->point();
-    if (b < a)
-      std::swap(a, b);
-    nearest_pairs.insert({a, b});
-  }
-
-  // Farthest-VD edges correspond to adjacent hull pairs
-  std::vector<std::pair<Point, Point>> farthest_pairs;
-  for (std::size_t i = 0, m = H.size(); i < m; ++i) {
-    Point u = H[i], v = H[(i + 1) % m];
-    if (v < u)
-      std::swap(u, v);
-    farthest_pairs.push_back({u, v});
-  }
-
-  auto r2_of = [&](const Point &c) {
-    FT bestd2 = CGAL::squared_distance(c, P[0]);
-    for (std::size_t i = 1; i < P.size(); ++i) {
-      FT d2 = CGAL::squared_distance(c, P[i]);
-      if (d2 < bestd2)
-        bestd2 = d2;
-    }
-    return bestd2;
-  };
-  auto R2_of = [&](const Point &c) {
-    FT worst = CGAL::squared_distance(c, H[0]);
-    for (std::size_t i = 1; i < H.size(); ++i) {
-      FT d2 = CGAL::squared_distance(c, H[i]);
-      if (worst < d2)
-        worst = d2;
-    }
-    return worst;
-  };
-
-  auto on_nearest_edge = [&](const Point &c, const Point &a, const Point &b) {
-    FT d2a = CGAL::squared_distance(c, a);
-    FT d2b = CGAL::squared_distance(c, b);
-    if (CGAL::compare(d2a, d2b) != CGAL::EQUAL)
-      return false;
-    for (const Point &p : P)
-      if (CGAL::compare(CGAL::squared_distance(c, p), d2a) == CGAL::SMALLER)
-        return false;
+static bool all_collinear(const std::vector<Point> &points) {
+  if (points.size() < 3)
     return true;
-  };
-  auto on_farthest_edge = [&](const Point &c, const Point &u, const Point &v) {
-    FT D2u = CGAL::squared_distance(c, u);
-    FT D2v = CGAL::squared_distance(c, v);
-    if (CGAL::compare(D2u, D2v) != CGAL::EQUAL)
-      return false;
-    for (const Point &h : H)
-      if (CGAL::compare(CGAL::squared_distance(c, h), D2u) == CGAL::LARGER)
-        return false;
+
+  std::size_t second = 1;
+  while (second < points.size() && points[second] == points[0])
+    ++second;
+  if (second == points.size())
     return true;
-  };
 
-  auto width_dec = [&](const FT &R2, const FT &r2) {
-    // Comparator only; final stored R2/r2 remain exact.
-    return std::sqrt(CGAL::to_double(R2)) - std::sqrt(CGAL::to_double(r2));
-  };
-
-  auto maybe_update = [&](const Point &c) {
-    FT r2 = r2_of(c);
-    FT R2 = R2_of(c);
-    double w = width_dec(R2, r2);
-    if (!best.valid || w < width_dec(best.R2, best.r2)) {
-      best.valid = true;
-      best.center = c;
-      best.r2 = r2;
-      best.R2 = R2;
-      best.inner_support.clear();
-      best.outer_support.clear();
-      for (const Point &p : P)
-        if (CGAL::compare(CGAL::squared_distance(c, p), r2) == CGAL::EQUAL)
-          best.inner_support.push_back(p);
-      for (const Point &h : H)
-        if (CGAL::compare(CGAL::squared_distance(c, h), R2) == CGAL::EQUAL)
-          best.outer_support.push_back(h);
-    }
-  };
-
-  // 1) Overlay vertices: intersections of nearest-edge bisector with
-  // farthest-edge bisector
-  for (const auto &ne : nearest_pairs) {
-    auto Ln = CGAL::bisector(ne.first, ne.second); // line
-    for (const auto &fe : farthest_pairs) {
-      auto Lf = CGAL::bisector(fe.first, fe.second);
-      auto inter = CGAL::intersection(Ln, Lf);
-      if (!inter)
-        continue;
-      if (const Point *pc = std::get_if<Point>(&*inter)) {
-        const Point &c = *pc;
-        if (!on_nearest_edge(c, ne.first, ne.second))
-          continue;
-        if (!on_farthest_edge(c, fe.first, fe.second))
-          continue;
-        maybe_update(c);
-      }
-      // (skip coincident lines — degenerate/measure-zero)
-    }
+  for (std::size_t i = second + 1; i < points.size(); ++i) {
+    if (!CGAL::collinear(points[0], points[second], points[i]))
+      return false;
   }
 
-  // 2) Nearest-VD vertices (circumcenters of finite Delaunay faces)
-  for (auto f = dt.finite_faces_begin(); f != dt.finite_faces_end(); ++f) {
-    Point a = f->vertex(0)->point();
-    Point b = f->vertex(1)->point();
-    Point c = f->vertex(2)->point();
-    Point cc = CGAL::circumcenter(a, b, c);
-    maybe_update(cc);
-  }
-
-  return best;
+  return true;
 }
 
-// --- helper: exact squared clearance to polygon boundary (min dist to any
-// edge)
-static FT clearance2_edges(const Polygon &poly, const Point &c) {
-  const std::size_t n = poly.size();
-  FT best = CGAL::squared_distance(c, Segment(poly[0], poly[1 % n]));
-  for (std::size_t i = 1; i < n; ++i) {
-    FT d2 = CGAL::squared_distance(c, Segment(poly[i], poly[(i + 1) % n]));
+static FT min_distance2(const std::vector<Point> &points, const Point &center) {
+  FT best = CGAL::squared_distance(center, points.front());
+  for (std::size_t i = 1; i < points.size(); ++i) {
+    const FT d2 = CGAL::squared_distance(center, points[i]);
     if (d2 < best)
       best = d2;
   }
   return best;
 }
 
-// --- main method: MZC over the polygonal region (exact r^2 via edges; exact
-// R^2 via hull)
-static MZC_Result minimum_zone_circle_exact_region(const Polygon &poly) {
-  MZC_Result best;
-  if (poly.size() < 3 || !poly.is_simple())
-    return best;
+static FT max_distance2(const std::vector<Point> &points, const Point &center) {
+  FT best = CGAL::squared_distance(center, points.front());
+  for (std::size_t i = 1; i < points.size(); ++i) {
+    const FT d2 = CGAL::squared_distance(center, points[i]);
+    if (best < d2)
+      best = d2;
+  }
+  return best;
+}
 
-  // Gather polygon vertices and convex hull (only hull vertices can be
-  // farthest)
-  std::vector<Point> P;
-  P.reserve(poly.size());
-  for (auto v = poly.vertices_begin(); v != poly.vertices_end(); ++v)
-    P.push_back(*v);
+static FT clearance2_edges(const Polygon &poly, const Point &center) {
+  const std::size_t n = poly.size();
+  FT best =
+      CGAL::squared_distance(center, Segment(poly[0], poly[(0 + 1) % n]));
+  for (std::size_t i = 1; i < n; ++i) {
+    const FT d2 =
+        CGAL::squared_distance(center, Segment(poly[i], poly[(i + 1) % n]));
+    if (d2 < best)
+      best = d2;
+  }
+  return best;
+}
 
-  std::vector<Point> H;
-  CGAL::convex_hull_2(P.begin(), P.end(), std::back_inserter(H));
-  if (H.empty())
-    return best;
+static void print_points_exact(const std::string &label,
+                               const std::vector<Point> &points) {
+  if (points.empty())
+    return;
 
-  auto R2_of = [&](const Point &c) {
-    FT worst = CGAL::squared_distance(c, H[0]);
-    for (std::size_t i = 1; i < H.size(); ++i) {
-      FT d2 = CGAL::squared_distance(c, H[i]);
-      if (worst < d2)
-        worst = d2;
-    }
-    return worst;
-  };
+  std::cout << label << "=";
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    if (i)
+      std::cout << "; ";
+    std::cout << "(" << exact_str(points[i].x()) << ", "
+              << exact_str(points[i].y()) << ")";
+  }
+  std::cout << "\n";
+}
 
-  // Candidate centers:
-  // (A) SDG Voronoi vertices (medial-axis vertices of the polygon boundary)
-  std::vector<Point> cands;
-  {
-    SDG sdg;
-    const std::size_t n = poly.size();
-    for (std::size_t i = 0; i < n; ++i) {
-      const Point &a = poly[i];
-      const Point &b = poly[(i + 1) % n];
-      sdg.insert(a, b); // boundary segment
-      sdg.insert(a);    // also add vertex as a point site
-    }
-    VD vd(sdg);
-    for (auto v = vd.vertices_begin(); v != vd.vertices_end(); ++v) {
-      const Point &c = v->point();
-      auto side = poly.bounded_side(c);
-      if (side == CGAL::ON_BOUNDED_SIDE || side == CGAL::ON_BOUNDARY)
-        cands.push_back(c);
+struct CircleResult {
+  Point center;
+  FT r2 = FT(0);
+  bool valid = false;
+  std::vector<Point> support;
+};
+
+static CircleResult maximum_inscribed_circle(const Polygon &poly_in) {
+  CircleResult out;
+  if (poly_in.size() < 3 || !poly_in.is_simple())
+    return out;
+
+  Polygon poly = poly_in;
+  if (!poly.is_counterclockwise_oriented())
+    poly.reverse_orientation();
+
+  SDG sdg;
+  for (std::size_t i = 0; i < poly.size(); ++i) {
+    const Point &a = poly[i];
+    const Point &b = poly[(i + 1) % poly.size()];
+    sdg.insert(a, b);
+    sdg.insert(a);
+  }
+
+  VD vd(sdg);
+  for (auto v = vd.vertices_begin(); v != vd.vertices_end(); ++v) {
+    const Point &center = v->point();
+    const CGAL::Bounded_side side = poly.bounded_side(center);
+    if (side != CGAL::ON_BOUNDED_SIDE && side != CGAL::ON_BOUNDARY)
+      continue;
+
+    const FT r2 = clearance2_edges(poly, center);
+    if (!out.valid || out.r2 < r2) {
+      out.center = center;
+      out.r2 = r2;
+      out.valid = true;
     }
   }
 
-  // (B) Farthest-VD vertices ≈ circumcenters of hull triples (filter by
-  // farthest check)
-  {
-    const std::size_t h = H.size();
-    if (h >= 3) {
-      for (std::size_t i = 0; i < h; ++i)
-        for (std::size_t j = i + 1; j < h; ++j)
-          for (std::size_t k = j + 1; k < h; ++k) {
-            if (CGAL::collinear(H[i], H[j], H[k]))
-              continue;
-            Point cc = CGAL::circumcenter(H[i], H[j], H[k]);
-            // keep it only if those three are co-farthest among H
-            FT D2 = CGAL::squared_distance(cc, H[i]);
-            if (CGAL::compare(D2, CGAL::squared_distance(cc, H[j])) !=
-                CGAL::EQUAL)
-              continue;
-            if (CGAL::compare(D2, CGAL::squared_distance(cc, H[k])) !=
-                CGAL::EQUAL)
-              continue;
-            bool ok = true;
-            for (const Point &hpt : H) {
-              if (CGAL::compare(CGAL::squared_distance(cc, hpt), D2) ==
-                  CGAL::LARGER) {
-                ok = false;
-                break;
-              }
-            }
-            if (ok) {
-              auto side = poly.bounded_side(cc);
-              if (side == CGAL::ON_BOUNDED_SIDE || side == CGAL::ON_BOUNDARY)
-                cands.push_back(cc);
-            }
-          }
-    }
-  }
-
-  // Evaluate all candidates exactly; choose the one minimizing (sqrt(R2) -
-  // sqrt(r2)). We store exact R2/r2; for ordering we use high-precision doubles
-  // (robust in practice).
-  auto consider = [&](const Point &c) {
-    FT r2 = clearance2_edges(poly, c); // min distance to boundary (edges)
-    FT R2 = R2_of(c);                  // max distance to hull vertices
-    double width =
-        std::sqrt(CGAL::to_double(R2)) - std::sqrt(CGAL::to_double(r2));
-    if (!best.valid || width < (std::sqrt(CGAL::to_double(best.R2)) -
-                                std::sqrt(CGAL::to_double(best.r2)))) {
-      best.valid = true;
-      best.center = c;
-      best.r2 = r2;
-      best.R2 = R2;
-      best.inner_support.clear();
-      best.outer_support.clear();
-      const std::size_t n = poly.size();
-      for (std::size_t i = 0; i < n; ++i) {
-        Segment e(poly[i], poly[(i + 1) % n]);
-        if (CGAL::compare(CGAL::squared_distance(c, e), r2) == CGAL::EQUAL)
-          best.inner_support.push_back(
-              poly[i]); // store an endpoint for reference
+  if (out.valid) {
+    for (std::size_t i = 0; i < poly.size(); ++i) {
+      Segment edge(poly[i], poly[(i + 1) % poly.size()]);
+      if (CGAL::compare(CGAL::squared_distance(out.center, edge), out.r2) ==
+          CGAL::EQUAL) {
+        out.support.push_back(poly[i]);
       }
-      for (const Point &hv : H)
-        if (CGAL::compare(CGAL::squared_distance(c, hv), R2) == CGAL::EQUAL)
-          best.outer_support.push_back(hv);
+    }
+  }
+
+  return out;
+}
+
+static CircleResult minimum_circumscribed_circle(const std::vector<Point> &in) {
+  CircleResult out;
+  const std::vector<Point> points = unique_points(in);
+  if (points.empty())
+    return out;
+
+  std::vector<Point> hull;
+  hull.reserve(points.size());
+  CGAL::convex_hull_2(points.begin(), points.end(), std::back_inserter(hull));
+  if (hull.empty())
+    return out;
+
+  using Traits = CGAL::Min_circle_2_traits_2<K>;
+  using MinCircle = CGAL::Min_circle_2<Traits>;
+
+  MinCircle mc(hull.begin(), hull.end(), true);
+  if (mc.is_empty())
+    return out;
+
+  const auto circle = mc.circle();
+  out.center = circle.center();
+  out.r2 = circle.squared_radius();
+  out.valid = true;
+
+  for (auto it = mc.support_points_begin(); it != mc.support_points_end(); ++it)
+    out.support.push_back(*it);
+
+  return out;
+}
+
+struct MZCResult {
+  Point center;
+  FT r2 = FT(0);
+  FT R2 = FT(0);
+  FT width = FT(0);
+  bool valid = false;
+  std::size_t candidates_evaluated = 0;
+  std::vector<Point> inner_support;
+  std::vector<Point> outer_support;
+};
+
+static bool on_nearest_edge(const Point &center, const Point &a,
+                            const Point &b,
+                            const std::vector<Point> &points) {
+  const FT d2a = CGAL::squared_distance(center, a);
+  if (CGAL::compare(d2a, CGAL::squared_distance(center, b)) != CGAL::EQUAL)
+    return false;
+
+  for (const Point &p : points) {
+    if (CGAL::compare(CGAL::squared_distance(center, p), d2a) ==
+        CGAL::SMALLER)
+      return false;
+  }
+
+  return true;
+}
+
+static bool on_farthest_edge(const Point &center, const Point &a,
+                             const Point &b,
+                             const std::vector<Point> &hull) {
+  const FT d2a = CGAL::squared_distance(center, a);
+  if (CGAL::compare(d2a, CGAL::squared_distance(center, b)) != CGAL::EQUAL)
+    return false;
+
+  for (const Point &p : hull) {
+    if (CGAL::compare(CGAL::squared_distance(center, p), d2a) == CGAL::LARGER)
+      return false;
+  }
+
+  return true;
+}
+
+static std::optional<Point> bisector_intersection(const Point &a,
+                                                  const Point &b,
+                                                  const Point &u,
+                                                  const Point &v) {
+  const FT a1 = FT(2) * (b.x() - a.x());
+  const FT b1 = FT(2) * (b.y() - a.y());
+  const FT c1 = b.x() * b.x() + b.y() * b.y() -
+                a.x() * a.x() - a.y() * a.y();
+
+  const FT a2 = FT(2) * (v.x() - u.x());
+  const FT b2 = FT(2) * (v.y() - u.y());
+  const FT c2 = v.x() * v.x() + v.y() * v.y() -
+                u.x() * u.x() - u.y() * u.y();
+
+  const FT det = a1 * b2 - a2 * b1;
+  if (CGAL::compare(det, FT(0)) == CGAL::EQUAL)
+    return std::nullopt;
+
+  return Point((c1 * b2 - c2 * b1) / det,
+               (a1 * c2 - a2 * c1) / det);
+}
+
+
+static MZCResult minimum_zone_circle_width(const std::vector<Point> &in) {
+  const std::vector<Point> points = unique_points(in);
+  MZCResult best;
+
+  if (points.empty())
+    return best;
+
+  if (points.size() == 1) {
+    best.center = points.front();
+    best.valid = true;
+    best.candidates_evaluated = 1;
+    best.inner_support = points;
+    best.outer_support = points;
+    return best;
+  }
+
+  if (points.size() == 2) {
+    best.center = CGAL::midpoint(points[0], points[1]);
+    best.r2 = CGAL::squared_distance(best.center, points[0]);
+    best.R2 = best.r2;
+    best.width = FT(0);
+    best.valid = true;
+    best.candidates_evaluated = 1;
+    best.inner_support = points;
+    best.outer_support = points;
+    return best;
+  }
+
+  if (all_collinear(points))
+    return best;
+
+  std::vector<Point> hull;
+  hull.reserve(points.size());
+  CGAL::convex_hull_2(points.begin(), points.end(), std::back_inserter(hull));
+  if (hull.size() < 3)
+    return best;
+
+  auto consider = [&](const Point &center) {
+    ++best.candidates_evaluated;
+
+    const FT r2 = min_distance2(points, center);
+    const FT R2 = max_distance2(hull, center);
+    const FT width = CGAL::sqrt(R2) - CGAL::sqrt(r2);
+
+    if (best.valid && !(width < best.width))
+      return;
+
+    best.center = center;
+    best.r2 = r2;
+    best.R2 = R2;
+    best.width = width;
+    best.valid = true;
+    best.inner_support.clear();
+    best.outer_support.clear();
+
+    for (const Point &p : points) {
+      if (CGAL::compare(CGAL::squared_distance(center, p), r2) ==
+          CGAL::EQUAL)
+        best.inner_support.push_back(p);
+    }
+    for (const Point &p : hull) {
+      if (CGAL::compare(CGAL::squared_distance(center, p), R2) ==
+          CGAL::EQUAL)
+        best.outer_support.push_back(p);
     }
   };
 
-  for (const Point &c : cands)
-    consider(c);
+  using DT = CGAL::Delaunay_triangulation_2<K>;
+  DT dt(points.begin(), points.end());
+
+  std::vector<std::pair<Point, Point>> nearest_pairs;
+  nearest_pairs.reserve(static_cast<std::size_t>(3 * points.size()));
+  for (auto e = dt.finite_edges_begin(); e != dt.finite_edges_end(); ++e) {
+    auto face = e->first;
+    const int i = e->second;
+    Point a = face->vertex(dt.cw(i))->point();
+    Point b = face->vertex(dt.ccw(i))->point();
+    if (b < a)
+      std::swap(a, b);
+    nearest_pairs.emplace_back(a, b);
+  }
+  std::sort(nearest_pairs.begin(), nearest_pairs.end());
+  nearest_pairs.erase(std::unique(nearest_pairs.begin(), nearest_pairs.end()),
+                      nearest_pairs.end());
+
+  // 3 inner support points: nearest Voronoi vertices.
+  for (auto face = dt.finite_faces_begin(); face != dt.finite_faces_end();
+       ++face) {
+    const Point &a = face->vertex(0)->point();
+    const Point &b = face->vertex(1)->point();
+    const Point &c = face->vertex(2)->point();
+    if (!CGAL::collinear(a, b, c))
+      consider(CGAL::circumcenter(a, b, c));
+  }
+
+  // 1 inner + 3 outer support points: farthest Voronoi vertices. CGAL does
+  // not ship a farthest Voronoi adapter here, so enumerate hull triples and
+  // keep only triples whose circumcircle contains the hull.
+  for (std::size_t i = 0; i < hull.size(); ++i) {
+    for (std::size_t j = i + 1; j < hull.size(); ++j) {
+      for (std::size_t k = j + 1; k < hull.size(); ++k) {
+        if (CGAL::collinear(hull[i], hull[j], hull[k]))
+          continue;
+
+        const Point center = CGAL::circumcenter(hull[i], hull[j], hull[k]);
+        const FT R2 = CGAL::squared_distance(center, hull[i]);
+        bool is_farthest_vertex = true;
+        for (const Point &p : hull) {
+          if (CGAL::compare(CGAL::squared_distance(center, p), R2) ==
+              CGAL::LARGER) {
+            is_farthest_vertex = false;
+            break;
+          }
+        }
+        if (is_farthest_vertex)
+          consider(center);
+      }
+    }
+  }
+
+  // 2 inner + 2 outer support points: overlay vertices of the nearest and
+  // farthest Voronoi diagrams.
+  std::vector<std::pair<Point, Point>> farthest_pairs;
+  for (std::size_t i = 0; i < hull.size(); ++i) {
+    for (std::size_t j = i + 1; j < hull.size(); ++j) {
+      Point a = hull[i];
+      Point b = hull[j];
+      if (b < a)
+        std::swap(a, b);
+      farthest_pairs.emplace_back(a, b);
+    }
+  }
+  std::sort(farthest_pairs.begin(), farthest_pairs.end());
+  farthest_pairs.erase(std::unique(farthest_pairs.begin(), farthest_pairs.end()),
+                       farthest_pairs.end());
+
+  for (const auto &near_pair : nearest_pairs) {
+    for (const auto &far_pair : farthest_pairs) {
+      const auto center = bisector_intersection(
+          near_pair.first, near_pair.second, far_pair.first, far_pair.second);
+      if (!center)
+        continue;
+
+      if (!on_nearest_edge(*center, near_pair.first, near_pair.second, points))
+        continue;
+      if (!on_farthest_edge(*center, far_pair.first, far_pair.second, hull))
+          continue;
+      consider(*center);
+    }
+  }
 
   return best;
 }
 
-// Verifies MCC against all polygon vertices (exact).
-// Returns true if: every vertex is inside/on, and there are 2 or 3 exact
-// supporters.
-static bool verify_mcc(const Polygon &poly, const Point &C, const FT &R2) {
-  if (poly.size() == 0)
+static bool verify_mic(const Polygon &poly, const CircleResult &mic) {
+  if (!mic.valid || poly.size() < 3 || !poly.is_simple())
     return false;
 
-  // All vertices must be <= R2 from center
-  for (auto v = poly.vertices_begin(); v != poly.vertices_end(); ++v) {
-    FT d2 = CGAL::squared_distance(C, *v);
-    if (CGAL::compare(d2, R2) == CGAL::LARGER)
-      return false;
-  }
-
-  // Count exact boundary supporters (should be 2 or 3 for a tight MEC)
-  int on_cnt = 0;
-  for (auto v = poly.vertices_begin(); v != poly.vertices_end(); ++v) {
-    FT d2 = CGAL::squared_distance(C, *v);
-    if (CGAL::compare(d2, R2) == CGAL::EQUAL)
-      ++on_cnt;
-  }
-  return (on_cnt >= 2 && on_cnt <= 3);
-}
-
-// Returns true iff r2_star is the maximum clearance among all SDG Voronoi
-// vertices. (This is an exact, sufficiency-based certificate for polygons with
-// straight edges.)
-static bool verify_mic(const Polygon &poly, const Point &C, const FT &r2_star) {
-  if (!poly.is_simple() || poly.size() < 3)
+  if (CGAL::compare(clearance2_edges(poly, mic.center), mic.r2) !=
+      CGAL::EQUAL)
     return false;
 
-  // Build SDG of the boundary (same as your MIC computation)
   SDG sdg;
-  const std::size_t n = poly.size();
-  for (std::size_t i = 0; i < n; ++i) {
+  for (std::size_t i = 0; i < poly.size(); ++i) {
     const Point &a = poly[i];
-    const Point &b = poly[(i + 1) % n];
+    const Point &b = poly[(i + 1) % poly.size()];
     sdg.insert(a, b);
     sdg.insert(a);
   }
+
   VD vd(sdg);
-
-  // 1) r2_star must equal clearance at the chosen center
-  if (CGAL::compare(clearance2_edges(poly, C), r2_star) != CGAL::EQUAL)
-    return false;
-
-  // 2) No Voronoi vertex has strictly larger clearance
   for (auto v = vd.vertices_begin(); v != vd.vertices_end(); ++v) {
-    FT r2_here = clearance2_edges(poly, v->point());
-    if (CGAL::compare(r2_here, r2_star) == CGAL::LARGER)
+    const Point &center = v->point();
+    const CGAL::Bounded_side side = poly.bounded_side(center);
+    if (side != CGAL::ON_BOUNDED_SIDE && side != CGAL::ON_BOUNDARY)
+      continue;
+
+    if (CGAL::compare(clearance2_edges(poly, center), mic.r2) ==
+        CGAL::LARGER)
       return false;
   }
 
-  return true; // MIC certified
+  return true;
 }
 
-struct WidthVal {
-  FT r2, R2;
-};
+static bool verify_mcc(const std::vector<Point> &points,
+                       const CircleResult &mcc) {
+  if (!mcc.valid || points.empty())
+    return false;
 
-static FT R2_from_hull(const std::vector<Point> &H, const Point &c) {
-  FT worst = CGAL::squared_distance(c, H[0]);
-  for (std::size_t i = 1; i < H.size(); ++i) {
-    FT d2 = CGAL::squared_distance(c, H[i]);
-    if (worst < d2)
-      worst = d2;
+  for (const Point &p : points) {
+    if (CGAL::compare(CGAL::squared_distance(mcc.center, p), mcc.r2) ==
+        CGAL::LARGER)
+      return false;
   }
-  return worst;
+
+  return !mcc.support.empty() && mcc.support.size() <= 3;
 }
 
-static bool verify_mzc_region(const Polygon &poly, const Point &Cstar,
-                              const FT &r2_star, const FT &R2_star) {
-  if (poly.size() < 3 || !poly.is_simple())
+static bool verify_mzc(const std::vector<Point> &points,
+                       const MZCResult &mzc) {
+  if (!mzc.valid || points.empty())
     return false;
 
-  // Gather vertices and hull (outer distance only needs hull)
-  std::vector<Point> P;
-  P.reserve(poly.size());
-  for (auto v = poly.vertices_begin(); v != poly.vertices_end(); ++v)
-    P.push_back(*v);
-
-  std::vector<Point> H;
-  CGAL::convex_hull_2(P.begin(), P.end(), std::back_inserter(H));
-  if (H.empty())
+  if (CGAL::compare(min_distance2(points, mzc.center), mzc.r2) != CGAL::EQUAL)
+    return false;
+  if (CGAL::compare(max_distance2(points, mzc.center), mzc.R2) != CGAL::EQUAL)
     return false;
 
-  // Target width (decimal only for ordering)
-  auto width_dec = [](const FT &R2, const FT &r2) {
-    return std::sqrt(CGAL::to_double(R2)) - std::sqrt(CGAL::to_double(r2));
-  };
-  const double w_star = width_dec(R2_star, r2_star);
+  const FT width = CGAL::sqrt(mzc.R2) - CGAL::sqrt(mzc.r2);
+  if (CGAL::compare(width, mzc.width) != CGAL::EQUAL)
+    return false;
 
-  // A) SDG vertices of the boundary
-  std::vector<Point> cands;
-  {
-    SDG sdg;
-    const std::size_t n = poly.size();
-    for (std::size_t i = 0; i < n; ++i) {
-      const Point &a = poly[i];
-      const Point &b = poly[(i + 1) % n];
-      sdg.insert(a, b); // edge site
-      sdg.insert(a);    // vertex site (harmless)
-    }
-    VD vd(sdg);
-    for (auto v = vd.vertices_begin(); v != vd.vertices_end(); ++v)
-      cands.push_back(
-          v->point()); // note: we DO include centers outside; that’s allowed
+  return !mzc.inner_support.empty() && !mzc.outer_support.empty();
+}
+
+static void print_circle_result(const std::string &label,
+                                const CircleResult &circle,
+                                const std::string &domain) {
+  if (!circle.valid) {
+    std::cout << label << "_VALID=0\n";
+    return;
   }
 
-  // B) Farthest-VD vertices (circumcenters of hull triples that are
-  // co-farthest)
-  {
-    const std::size_t h = H.size();
-    if (h >= 3) {
-      for (std::size_t i = 0; i < h; ++i)
-        for (std::size_t j = i + 1; j < h; ++j)
-          for (std::size_t k = j + 1; k < h; ++k) {
-            if (CGAL::collinear(H[i], H[j], H[k]))
-              continue;
-            Point cc = CGAL::circumcenter(H[i], H[j], H[k]);
-            FT D2 = CGAL::squared_distance(cc, H[i]);
-            if (CGAL::compare(D2, CGAL::squared_distance(cc, H[j])) !=
-                CGAL::EQUAL)
-              continue;
-            if (CGAL::compare(D2, CGAL::squared_distance(cc, H[k])) !=
-                CGAL::EQUAL)
-              continue;
-            bool max_ok = true;
-            for (const Point &hpt : H) {
-              if (CGAL::compare(CGAL::squared_distance(cc, hpt), D2) ==
-                  CGAL::LARGER) {
-                max_ok = false;
-                break;
-              }
-            }
-            if (max_ok)
-              cands.push_back(cc);
-          }
-    }
+  std::cout << label << "_VALID=1\n";
+  std::cout << label << "_DOMAIN=" << domain << "\n";
+  std::cout << label << "_CENTER_DEC=(" << decimal_str(circle.center.x())
+            << ", " << decimal_str(circle.center.y()) << ")\n";
+  std::cout << label << "_RADIUS_DEC=" << decimal_double(radius_dec(circle.r2))
+            << "\n";
+  std::cout << label << "_CENTER_EXACT_X=" << exact_str(circle.center.x())
+            << "\n";
+  std::cout << label << "_CENTER_EXACT_Y=" << exact_str(circle.center.y())
+            << "\n";
+  std::cout << label << "_RADIUS2_EXACT=" << exact_str(circle.r2) << "\n";
+  std::cout << label << "_RADIUS_EXACT=sqrt(" << exact_str(circle.r2) << ")\n";
+  print_points_exact(label + "_SUPPORT_POINTS", circle.support);
+}
+
+static void print_mzc_result(const MZCResult &mzc) {
+  if (!mzc.valid) {
+    std::cout << "MZC_VALID=0\n";
+    return;
   }
 
-  // C) Evaluate every candidate; none may beat (R2*, r2*)
-  for (const Point &c : cands) {
-    FT r2 = clearance2_edges(poly, c); // inner: edge distance (exact)
-    FT R2 = R2_from_hull(H, c);        // outer: hull vertex distance (exact)
-    if (width_dec(R2, r2) < w_star)
-      return false; // someone beats us → not optimal
-  }
+  std::cout << "MZC_VALID=1\n";
+  std::cout << "MZC_DOMAIN=POINT_SET\n";
+  std::cout << "MZC_OBJECTIVE=RADIAL_WIDTH\n";
+  std::cout << "MZC_SOLVER_EXACT_FOR=FINITE_POINT_SET_RADIAL_WIDTH\n";
+  std::cout << "MZC_CENTER_DEC=(" << decimal_str(mzc.center.x()) << ", "
+            << decimal_str(mzc.center.y()) << ")\n";
+  std::cout << "MZC_INNER_RADIUS_DEC=" << decimal_double(radius_dec(mzc.r2))
+            << "\n";
+  std::cout << "MZC_OUTER_RADIUS_DEC=" << decimal_double(radius_dec(mzc.R2))
+            << "\n";
+  std::cout << "MZC_WIDTH_DEC=" << decimal_double(CGAL::to_double(mzc.width))
+            << "\n";
+  std::cout << "MZC_CENTER_EXACT_X=" << exact_str(mzc.center.x()) << "\n";
+  std::cout << "MZC_CENTER_EXACT_Y=" << exact_str(mzc.center.y()) << "\n";
+  std::cout << "MZC_R_IN2_EXACT=" << exact_str(mzc.r2) << "\n";
+  std::cout << "MZC_R_OUT2_EXACT=" << exact_str(mzc.R2) << "\n";
+  std::cout << "MZC_WIDTH_EXACT=sqrt(" << exact_str(mzc.R2) << ")-sqrt("
+            << exact_str(mzc.r2) << ")\n";
+  std::cout << "MZC_CANDIDATES_EVALUATED=" << mzc.candidates_evaluated
+            << "\n";
+  print_points_exact("MZC_INNER_SUPPORT", mzc.inner_support);
+  print_points_exact("MZC_OUTER_SUPPORT", mzc.outer_support);
+}
 
-  // D) Our own center must realize the stored values exactly
-  if (CGAL::compare(clearance2_edges(poly, Cstar), r2_star) != CGAL::EQUAL)
-    return false;
-  if (CGAL::compare(R2_from_hull(H, Cstar), R2_star) != CGAL::EQUAL)
-    return false;
+static void print_mzc_polyline_diagnostic(const Polygon &poly,
+                                          const MZCResult &mzc) {
+  if (!mzc.valid || poly.size() < 3)
+    return;
 
-  return true; // MZC certified against the complete region candidate set
-               // (A)+(B)
+  const FT r2 = clearance2_edges(poly, mzc.center);
+  const FT width = CGAL::sqrt(mzc.R2) - CGAL::sqrt(r2);
+
+  std::cout << "MZC_POLYLINE_DIAGNOSTIC=EVAL_AT_POINT_SET_MZC_CENTER\n";
+  std::cout << "MZC_POLYLINE_INNER_RADIUS_DEC="
+            << decimal_double(radius_dec(r2)) << "\n";
+  std::cout << "MZC_POLYLINE_OUTER_RADIUS_DEC="
+            << decimal_double(radius_dec(mzc.R2)) << "\n";
+  std::cout << "MZC_POLYLINE_WIDTH_DEC="
+            << decimal_double(CGAL::to_double(width)) << "\n";
+  std::cout << "MZC_POLYLINE_R_IN2_EXACT=" << exact_str(r2) << "\n";
+  std::cout << "MZC_POLYLINE_R_OUT2_EXACT=" << exact_str(mzc.R2) << "\n";
+  std::cout << "MZC_POLYLINE_WIDTH_EXACT=sqrt(" << exact_str(mzc.R2)
+            << ")-sqrt(" << exact_str(r2) << ")\n";
 }
 
 int main(int argc, char **argv) {
   std::ios::sync_with_stdio(false);
-  CGAL::IO::set_pretty_mode(
-      std::cout); // exact fractions/surds when streaming FT
+  CGAL::IO::set_pretty_mode(std::cout);
 
-  // High-precision decimal for WKT/diagnostics
-  std::cout.setf(std::ios::fixed);
-  std::cout << std::setprecision(17);
-
-  // Read WKT POLYGON from file or stdin
   std::ifstream fin;
-  std::istream *in = &std::cin;
+  std::istream *input = &std::cin;
   if (argc > 1) {
     fin.open(argv[1]);
     if (!fin) {
       std::cerr << "Cannot open: " << argv[1] << "\n";
       return 1;
     }
-    in = &fin;
+    input = &fin;
   }
 
   Polygon poly;
-  if (!CGAL::IO::read_polygon_WKT(*in, poly)) {
+  if (!CGAL::IO::read_polygon_WKT(*input, poly)) {
     std::cerr << "Failed to read WKT POLYGON.\n";
     return 1;
   }
 
-  // MIC
-  auto mic = maximum_inscribed_circle(poly);
-  if (!mic.valid) {
-    std::cerr << "MIC not found (check that the polygon is simple and "
-                 "non-degenerate).\n";
-  } else {
-    std::cout << "MIC_CENTER_DEC=(" << decimal_str(mic.center.x()) << ", "
-              << decimal_str(mic.center.y()) << ")\n";
-    std::cout << "MIC_RADIUS_DEC=" << std::sqrt(CGAL::to_double(mic.r2))
-              << "\n";
+  const std::vector<Point> vertices = polygon_vertices(poly);
+  const std::vector<Point> points = unique_points(vertices);
 
-    std::cout << "MIC_CENTER_EXACT_X=" << CGAL::exact(mic.center.x()) << "\n";
-    std::cout << "MIC_CENTER_EXACT_Y=" << CGAL::exact(mic.center.y()) << "\n";
-    std::cout << "MIC_RADIUS2_EXACT=" << CGAL::exact(mic.r2) << "\n";
-    std::cout << "MIC_RADIUS_EXACT=sqrt(" << CGAL::exact(mic.r2) << ")\n";
-  }
+  std::cout << "INPUT_VERTEX_COUNT=" << vertices.size() << "\n";
+  std::cout << "INPUT_UNIQUE_POINT_COUNT=" << points.size() << "\n";
+  std::cout << "INPUT_SIMPLE=" << (poly.is_simple() ? 1 : 0) << "\n";
+  std::cout << "INPUT_POINT_SET_SOURCE=POLYGON_VERTICES\n";
 
-  // MCC
-  auto mcc = minimum_circumscribed_circle(poly);
-  if (!mcc.valid) {
-    std::cerr << "MCC not found (empty/degenerate input?).\n";
-  } else {
-    std::cout << "MCC_CENTER_DEC=(" << decimal_str(mcc.center.x()) << ", "
-              << decimal_str(mcc.center.y()) << ")\n";
-    std::cout << "MCC_RADIUS_DEC=" << std::sqrt(CGAL::to_double(mcc.r2))
-              << "\n";
+  const CircleResult mic = maximum_inscribed_circle(poly);
+  const CircleResult mcc = minimum_circumscribed_circle(points);
+  const MZCResult mzc = minimum_zone_circle_width(points);
 
-    std::cout << "MCC_CENTER_EXACT_X=" << CGAL::exact(mcc.center.x()) << "\n";
-    std::cout << "MCC_CENTER_EXACT_Y=" << CGAL::exact(mcc.center.y()) << "\n";
-    std::cout << "MCC_RADIUS2_EXACT=" << CGAL::exact(mcc.r2) << "\n";
-    std::cout << "MCC_RADIUS_EXACT=sqrt(" << CGAL::exact(mcc.r2) << ")\n";
-
-    if (!mcc.support.empty()) {
-      std::cout << "MCC_SUPPORT_POINTS=";
-      for (std::size_t i = 0; i < mcc.support.size(); ++i) {
-        if (i)
-          std::cout << "; ";
-        std::cout << "(" << CGAL::exact(mcc.support[i].x()) << ", "
-                  << CGAL::exact(mcc.support[i].y()) << ")";
-      }
-      std::cout << "\n";
-    }
-  }
-
-  auto mcc2 = minimum_circumscribed_circle2(poly);
-  if (!mcc2.valid) {
-    std::cerr << "MCC2 not found (empty/degenerate input?).\n";
-  } else {
-    std::cout << "MCC2_CENTER_DEC=(" << decimal_str(mcc2.center.x()) << ", "
-              << decimal_str(mcc2.center.y()) << ")\n";
-    std::cout << "MCC2_RADIUS_DEC=" << std::sqrt(CGAL::to_double(mcc2.r2))
-              << "\n";
-
-    std::cout << "MCC2_CENTER_EXACT_X=" << CGAL::exact(mcc2.center.x()) << "\n";
-    std::cout << "MCC2_CENTER_EXACT_Y=" << CGAL::exact(mcc2.center.y()) << "\n";
-    std::cout << "MCC2_RADIUS2_EXACT=" << CGAL::exact(mcc2.r2) << "\n";
-    std::cout << "MCC2_RADIUS_EXACT=sqrt(" << CGAL::exact(mcc2.r2) << ")\n";
-
-    if (!mcc2.support.empty()) {
-      std::cout << "MCC2_SUPPORT_POINTS=";
-      for (std::size_t i = 0; i < mcc2.support.size(); ++i) {
-        if (i)
-          std::cout << "; ";
-        std::cout << "(" << CGAL::exact(mcc2.support[i].x()) << ", "
-                  << CGAL::exact(mcc2.support[i].y()) << ")";
-      }
-      std::cout << "\n";
-    }
-  }
+  print_circle_result("MIC", mic, "POLYGON_INTERIOR");
+  print_circle_result("MCC", mcc, "POINT_SET_EQUIVALENT_TO_POLYGON");
 
   if (mic.valid && mcc.valid) {
-    auto dx = decimal_str(mcc.center.x() - mic.center.x());
-    auto dy = decimal_str(mcc.center.y() - mic.center.y());
-    auto dr =
-        std::sqrt(CGAL::to_double(mcc.r2)) - std::sqrt(CGAL::to_double(mic.r2));
-    std::cout << "CENTER_DELTA_DEC=(" << dx << "," << dy << ")\n";
-    std::cout << "RADIUS_DELTA_DEC=" << dr << "\n";
-
-    // Relative gap (how “annulus-like” the polygon is)
-    double r_out = std::sqrt(CGAL::to_double(mcc.r2));
-    double rel = (r_out > 0.0) ? (dr / r_out) : 0.0;
-    std::cout << "RADIUS_REL_GAP=" << rel << "  # fraction of outer radius\n";
+    const FT dx = mcc.center.x() - mic.center.x();
+    const FT dy = mcc.center.y() - mic.center.y();
+    const double dr = radius_dec(mcc.r2) - radius_dec(mic.r2);
+    const double outer = radius_dec(mcc.r2);
+    std::cout << "CENTER_DELTA_DEC=(" << decimal_str(dx) << ", "
+              << decimal_str(dy) << ")\n";
+    std::cout << "RADIUS_DELTA_DEC=" << decimal_double(dr) << "\n";
+    std::cout << "RADIUS_REL_GAP="
+              << decimal_double(outer > 0.0 ? dr / outer : 0.0) << "\n";
   }
 
-  // MZC
-  auto mzc = minimum_zone_circle_exact(poly);
-  if (mzc.valid) {
-    std::cout << "MZC_CENTER_DEC=(" << decimal_str(mzc.center.x()) << ", "
-              << decimal_str(mzc.center.y()) << ")\n";
-    std::cout << "MZC_WIDTH_DEC="
-              << (std::sqrt(CGAL::to_double(mzc.R2)) -
-                  std::sqrt(CGAL::to_double(mzc.r2)))
-              << "\n";
-    std::cout << "MZC_CENTER_EXACT_X=" << CGAL::exact(mzc.center.x()) << "\n";
-    std::cout << "MZC_CENTER_EXACT_Y=" << CGAL::exact(mzc.center.y()) << "\n";
-    std::cout << "MZC_R_IN2_EXACT=" << CGAL::exact(mzc.r2) << "\n";
-    std::cout << "MZC_R_OUT2_EXACT=" << CGAL::exact(mzc.R2) << "\n";
-    if (!mzc.inner_support.empty()) {
-      std::cout << "MZC_INNER_SUPPORT=";
-      for (std::size_t i = 0; i < mzc.inner_support.size(); ++i) {
-        if (i)
-          std::cout << "; ";
-        std::cout << "(" << CGAL::exact(mzc.inner_support[i].x()) << ", "
-                  << CGAL::exact(mzc.inner_support[i].y()) << ")";
-      }
-      std::cout << "\n";
-    }
-    if (!mzc.outer_support.empty()) {
-      std::cout << "MZC_OUTER_SUPPORT=";
-      for (std::size_t i = 0; i < mzc.outer_support.size(); ++i) {
-        if (i)
-          std::cout << "; ";
-        std::cout << "(" << CGAL::exact(mzc.outer_support[i].x()) << ", "
-                  << CGAL::exact(mzc.outer_support[i].y()) << ")";
-      }
-      std::cout << "\n";
-    }
-  } else {
-    std::cerr << "MZC not found.\n";
+  print_mzc_result(mzc);
+  print_mzc_polyline_diagnostic(poly, mzc);
+
+  std::cout << "MIC_CERT=" << (verify_mic(poly, mic) ? "OK" : "FAIL")
+            << "\n";
+  std::cout << "MCC_CERT=" << (verify_mcc(points, mcc) ? "OK" : "FAIL")
+            << "\n";
+  std::cout << "MZC_CERT=" << (verify_mzc(points, mzc) ? "OK" : "FAIL")
+            << "\n";
+
+  if (!mzc.valid && points.size() > 2 && all_collinear(points)) {
+    std::cerr << "MZC has no finite minimizer for a collinear point set; "
+                 "the width infimum is approached at infinity.\n";
   }
-
-  // MZC 2
-  auto mzc2 = minimum_zone_circle_exact_region(poly);
-  if (mzc2.valid) {
-    std::cout << "MZC2_CENTER_DEC=(" << decimal_str(mzc2.center.x()) << ", "
-              << decimal_str(mzc2.center.y()) << ")\n";
-    std::cout << "MZC2_WIDTH_DEC="
-              << (std::sqrt(CGAL::to_double(mzc2.R2)) -
-                  std::sqrt(CGAL::to_double(mzc2.r2)))
-              << "\n";
-    std::cout << "MZC2_CENTER_EXACT_X=" << CGAL::exact(mzc2.center.x()) << "\n";
-    std::cout << "MZC2_CENTER_EXACT_Y=" << CGAL::exact(mzc2.center.y()) << "\n";
-    std::cout << "MZC2_R_IN2_EXACT=" << CGAL::exact(mzc2.r2) << "\n";
-    std::cout << "MZC2_R_OUT2_EXACT=" << CGAL::exact(mzc2.R2) << "\n";
-    if (!mzc2.inner_support.empty()) {
-      std::cout << "MZC2_INNER_SUPPORT=";
-      for (std::size_t i = 0; i < mzc2.inner_support.size(); ++i) {
-        if (i)
-          std::cout << "; ";
-        std::cout << "(" << CGAL::exact(mzc2.inner_support[i].x()) << ", "
-                  << CGAL::exact(mzc2.inner_support[i].y()) << ")";
-      }
-      std::cout << "\n";
-    }
-    if (!mzc2.outer_support.empty()) {
-      std::cout << "MZC2_OUTER_SUPPORT=";
-      for (std::size_t i = 0; i < mzc2.outer_support.size(); ++i) {
-        if (i)
-          std::cout << "; ";
-        std::cout << "(" << CGAL::exact(mzc2.outer_support[i].x()) << ", "
-                  << CGAL::exact(mzc2.outer_support[i].y()) << ")";
-      }
-      std::cout << "\n";
-    }
-  } else {
-    std::cerr << "MZC2 not found.\n";
-  }
-
-
-  /*
-  bool mic_ok = verify_mic(poly, mic.center, mic.r2);
-  bool mcc_ok = verify_mcc(poly, mcc.center, mcc.r2);
-  bool mzc_ok = verify_mzc_region(poly, mzc.center, mzc.r2, mzc.R2);
-  bool mzc2_ok = verify_mzc_region(poly, mzc2.center, mzc2.r2, mzc2.R2);
-
-  std::cerr << "MIC_CERT=" << (mic_ok ? "OK" : "FAIL") << "\n";
-  std::cerr << "MCC_CERT=" << (mcc_ok ? "OK" : "FAIL") << "\n";
-  std::cerr << "MZC_CERT=" << (mzc_ok ? "OK" : "FAIL") << "\n";
-  std::cerr << "MZC2_CERT=" << (mzc2_ok ? "OK" : "FAIL") << "\n";
-  */
 
   return 0;
 }

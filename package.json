@@ -10,6 +10,7 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"test": "vitest run",
+		"fixtures:roundness": "node scripts/generate_roundness_fixtures.cjs",
 		"test:watch": "vitest",
 		"coverage": "vitest run --coverage"
 	},

@@ -27,11 +27,11 @@
  */
 export function transform(real, imag) {
     const n = real.length;
-    if (n != imag.length)
+    if (n !== imag.length)
         throw new RangeError("Mismatched lengths");
-    if (n == 0)
+    if (n === 0)
         return;
-    else if ((n & (n - 1)) == 0) // Is power of 2
+    else if ((n & (n - 1)) === 0) // Is power of 2
         transformRadix2(real, imag);
     else // More complicated algorithm for arbitrary sizes
         transformBluestein(real, imag);
@@ -50,20 +50,20 @@ export function inverseTransform(real, imag) {
 function transformRadix2(real, imag) {
     // Length variables
     const n = real.length;
-    if (n != imag.length)
+    if (n !== imag.length)
         throw new RangeError("Mismatched lengths");
-    if (n == 1) // Trivial transform
+    if (n === 1) // Trivial transform
         return;
     let levels = -1;
     for (let i = 0; i < 32; i++) {
-        if (1 << i == n)
+        if ((1 << i) === n)
             levels = i; // Equal to log2(n)
     }
-    if (levels == -1)
+    if (levels === -1)
         throw new RangeError("Length is not a power of 2");
     // Trigonometric tables
-    let cosTable = new Array(n / 2);
-    let sinTable = new Array(n / 2);
+    const cosTable = new Array(n / 2);
+    const sinTable = new Array(n / 2);
     for (let i = 0; i < n / 2; i++) {
         cosTable[i] = Math.cos(2 * Math.PI * i / n);
         sinTable[i] = Math.sin(2 * Math.PI * i / n);
@@ -114,28 +114,28 @@ function transformRadix2(real, imag) {
 function transformBluestein(real, imag) {
     // Find a power-of-2 convolution length m such that m >= n * 2 + 1
     const n = real.length;
-    if (n != imag.length)
+    if (n !== imag.length)
         throw new RangeError("Mismatched lengths");
     let m = 1;
     while (m < n * 2 + 1)
         m *= 2;
     // Trigonometric tables
-    let cosTable = new Array(n);
-    let sinTable = new Array(n);
+    const cosTable = new Array(n);
+    const sinTable = new Array(n);
     for (let i = 0; i < n; i++) {
         const j = i * i % (n * 2); // This is more accurate than j = i * i
         cosTable[i] = Math.cos(Math.PI * j / n);
         sinTable[i] = Math.sin(Math.PI * j / n);
     }
     // Temporary vectors and preprocessing
-    let areal = newArrayOfZeros(m);
-    let aimag = newArrayOfZeros(m);
+    const areal = newArrayOfZeros(m);
+    const aimag = newArrayOfZeros(m);
     for (let i = 0; i < n; i++) {
         areal[i] = real[i] * cosTable[i] + imag[i] * sinTable[i];
         aimag[i] = -real[i] * sinTable[i] + imag[i] * cosTable[i];
     }
-    let breal = newArrayOfZeros(m);
-    let bimag = newArrayOfZeros(m);
+    const breal = newArrayOfZeros(m);
+    const bimag = newArrayOfZeros(m);
     breal[0] = cosTable[0];
     bimag[0] = sinTable[0];
     for (let i = 1; i < n; i++) {
@@ -143,8 +143,8 @@ function transformBluestein(real, imag) {
         bimag[i] = bimag[m - i] = sinTable[i];
     }
     // Convolution
-    let creal = new Array(m);
-    let cimag = new Array(m);
+    const creal = new Array(m);
+    const cimag = new Array(m);
     convolveComplex(areal, aimag, breal, bimag, creal, cimag);
     // Postprocessing
     for (let i = 0; i < n; i++) {
@@ -157,7 +157,7 @@ function transformBluestein(real, imag) {
  */
 function convolveReal(xvec, yvec, outvec) {
     const n = xvec.length;
-    if (n != yvec.length || n != outvec.length)
+    if (n !== yvec.length || n !== outvec.length)
         throw new RangeError("Mismatched lengths");
     convolveComplex(xvec, newArrayOfZeros(n), yvec, newArrayOfZeros(n), outvec, newArrayOfZeros(n));
 }
@@ -166,8 +166,8 @@ function convolveReal(xvec, yvec, outvec) {
  */
 function convolveComplex(xreal, ximag, yreal, yimag, outreal, outimag) {
     const n = xreal.length;
-    if (n != ximag.length || n != yreal.length || n != yimag.length
-        || n != outreal.length || n != outimag.length)
+    if (n !== ximag.length || n !== yreal.length || n !== yimag.length
+        || n !== outreal.length || n !== outimag.length)
         throw new RangeError("Mismatched lengths");
     xreal = xreal.slice();
     ximag = ximag.slice();
@@ -188,8 +188,5 @@ function convolveComplex(xreal, ximag, yreal, yimag, outreal, outimag) {
 }
 
 function newArrayOfZeros(n) {
-    let result = [];
-    for (let i = 0; i < n; i++)
-        result.push(0);
-    return result;
+    return new Array(n).fill(0);
 }

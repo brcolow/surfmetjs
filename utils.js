@@ -1,12 +1,16 @@
+const GEOMETRY_EPSILON = 1e-12;
+
 /**
  * Calculates the squared distance between two points.
  *
  * @param {Array<number>} a - The first point [x, y].
  * @param {Array<number>} b - The second point [x, y].
- * @returns {number} - The squared distance between the points.
+ * @returns {number} The squared distance between the points.
  */
 export function distanceSquared(a, b) {
-  return (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]);
+  const dx = a[0] - b[0];
+  const dy = a[1] - b[1];
+  return dx * dx + dy * dy;
 }
 
 /**
@@ -14,7 +18,7 @@ export function distanceSquared(a, b) {
  *
  * @param {number} min - The minimum value (inclusive).
  * @param {number} max - The maximum value (exclusive).
- * @returns {number} - A random number in the specified range.
+ * @returns {number} A random number in the specified range.
  */
 export function getRandomBetween(min, max) {
   return Math.random() * (max - min) + min;
@@ -23,367 +27,345 @@ export function getRandomBetween(min, max) {
 /**
  * Checks whether two circles are concentric.
  *
- * @param {Object} circle1 - The first circle, with `center` and `radius`.
- * @param {Object} circle2 - The second circle, with `center` and `radius`.
- * @returns {boolean} - `true` if the circles are concentric, `false` otherwise.
+ * @param {Object} circle1 - The first circle, with `center`.
+ * @param {Object} circle2 - The second circle, with `center`.
+ * @param {number} [epsilon=1e-12] - Center comparison tolerance.
+ * @returns {boolean} True if the circles are concentric.
  */
-export function areConcentric(circle1, circle2) {
-  const dx = circle1.center[0] - circle2.center[0];
-  const dy = circle1.center[1] - circle2.center[1];
-
-  // Check if the centers are the same.
-  return dx === 0 && dy === 0;
+export function areConcentric(circle1, circle2, epsilon = GEOMETRY_EPSILON) {
+  return distanceSquared(circle1.center, circle2.center) <= epsilon * epsilon;
 }
 
 /**
  * Computes the mean of a set of points.
  *
  * @param {Array<Array<number>>} points - The set of 2D points.
- * @returns {Array<number>} - The mean of the points
-*/
+ * @returns {Array<number>} The mean of the points.
+ */
 export function mean(points) {
-  let mean = points.reduce(([x, y], p) => [x + p[0], y + p[1]], [0, 0]);
-  mean[0] /= points.length;
-  mean[1] /= points.length;
-  return mean;
+  assertNonEmptyPoints(points);
+
+  const [sumX, sumY] = points.reduce(
+    ([x, y], point) => [x + point[0], y + point[1]],
+    [0, 0]
+  );
+
+  return [sumX / points.length, sumY / points.length];
 }
 
 /**
- * Apply the transformation p |--> (p - center) / ||p - center||^2
+ * Applies the inversion p -> center + (p - center) / ||p - center||^2.
  *
- * @param {Array<Array<number>>} points - The set of 2D points to apply the transformation to
- * @param {Array<number>} center - The center of the transformation
- * @returns {Array<Array<number>>} - The transformed points
+ * @param {Array<Array<number>>} points - Points to invert.
+ * @param {Array<number>} center - Inversion center.
+ * @returns {Array<Array<number>>} Inverted points.
  */
 export function invertAtUnitCircle(points, center) {
-  return points.map(p => {
-    let pointsOffset = [p[0] - center[0], p[1] - center[1]];
-    let distSquared = distanceSquared(p, center);
-    return [
-      center[0] + pointsOffset[0] / distSquared,
-      center[1] + pointsOffset[1] / distSquared,
-    ]
-  });
+  return points.map(point => invertPointAtUnitCircle(point, center));
+}
+
+function invertPointAtUnitCircle(point, center) {
+  const dx = point[0] - center[0];
+  const dy = point[1] - center[1];
+  const radiusSquared = dx * dx + dy * dy;
+
+  if (radiusSquared <= GEOMETRY_EPSILON) {
+    return [center[0], center[1]];
+  }
+
+  return [
+    center[0] + dx / radiusSquared,
+    center[1] + dy / radiusSquared
+  ];
 }
 
 /**
- * Computes the convex hull of a set of 2D points using the Graham scan algorithm.
+ * Computes the convex hull of a set of 2D points with Andrew's monotone chain
+ * algorithm. The input array is not mutated.
+ *
+ * Collinear interior points are omitted. If all points are collinear, the two
+ * endpoints are returned.
  *
  * @param {Array<Array<number>>} points - The set of 2D points.
- * @returns {Array<Array<number>>} - The vertices of the convex hull in counterclockwise order.
+ * @returns {Array<Array<number>>} Hull vertices in counterclockwise order.
  */
 export function computeConvexHull(points) {
-  // Find the lowest point
-  let minY = Infinity;
-  let minIndex = 0;
-  for (let i = 0; i < points.length; i++) {
-    if (points[i][1] < minY || (points[i][1] === minY && points[i][0] < points[minIndex][0])) {
-      minY = points[i][1];
-      minIndex = i;
+  if (!Array.isArray(points) || points.length === 0) {
+    return [];
+  }
+
+  const sorted = uniquePoints(points)
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+
+  if (sorted.length <= 2) {
+    return sorted.map(point => [...point]);
+  }
+
+  const lower = [];
+  for (const point of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+      lower.pop();
+    }
+    lower.push(point);
+  }
+
+  const upper = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const point = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+      upper.pop();
+    }
+    upper.push(point);
+  }
+
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper).map(point => [...point]);
+}
+
+function uniquePoints(points) {
+  const seen = new Set();
+  const result = [];
+
+  for (const point of points) {
+    const key = `${point[0]},${point[1]}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push([point[0], point[1]]);
     }
   }
 
-  // Swap the lowest point to the first position
-  [points[0], points[minIndex]] = [points[minIndex], points[0]];
+  return result;
+}
 
-  // Sort points by polar angle
-  // Note: We may be able to skip this because the circlular trace is always ordered this way...
-  points.sort((a, b) => {
-    const angleA = Math.atan2(a[1] - points[0][1], a[0] - points[0][0]);
-    const angleB = Math.atan2(b[1] - points[0][1], b[0] - points[0][0]);
-    return angleA - angleB;
-  });
-
-  const stack = [];
-  stack.push(points[0]);
-  stack.push(points[1]);
-
-  // Build the convex hull.
-  for (let i = 2; i < points.length; i++) {
-    let top = stack.pop();
-    while (orientation(stack[stack.length - 1], top, points[i]) <= 0) {
-      top = stack.pop();
-    }
-    stack.push(top);
-    stack.push(points[i]);
-  }
-
-  return stack;
+function cross(origin, a, b) {
+  return (a[0] - origin[0]) * (b[1] - origin[1]) -
+    (a[1] - origin[1]) * (b[0] - origin[0]);
 }
 
 /**
  * Generates an initial solution for the circle optimization problem.
  *
- * @param {Array<Array<number>>} points - The set of 2D points.
- * @param {string} circleType - The type of circle optimization ("MIC", "MCC", or "MZC").
- * @param {Object} leastSquaresCircle - The least-squares circle, with properties `a` and `b` for its center.
- * @returns {Object} - The initial solution, with format depending on `circleType`.
- */
-export function getInitialSolution(points, circleType, leastSquaresCircle) {
-  if (circleType === "MIC") {
-    const convexHull = computeConvexHull(points);
-
-    const distancesSquared = points.map(p => distanceSquared(p, [leastSquaresCircle.a, leastSquaresCircle.b]));
-    const maxRadius = Math.sqrt(Math.max(...distancesSquared));
-    const minRadius = Math.sqrt(Math.min(...distancesSquared));
-    const radiusRange = (maxRadius - minRadius) / 10000;
-    
-    function randomizeCenter() {
-      return [
-        leastSquaresCircle.a + getRandomBetween(-radiusRange, radiusRange),
-        leastSquaresCircle.b + getRandomBetween(-radiusRange, radiusRange),
-      ];
-    }
-  
-    // Try multiple random centers
-    const NUM_CANDIDATES = 20;
-    let bestCenter = [leastSquaresCircle.a, leastSquaresCircle.b];
-    let bestMinDistance = 0;
-  
-    for (let i = 0; i < NUM_CANDIDATES; i++) {
-      let center = randomizeCenter();
-      let centerTries = 0;
-      while (!isPointInPolygon(center, convexHull)) {
-        center = randomizeCenter();
-        centerTries++;
-        if (centerTries > 1000) {
-          console.warn("Failed to find a center inside convex hull after 1000 tries.");
-          center = [leastSquaresCircle.a, leastSquaresCircle.b];
-          break;
-        }
-      }
-  
-      const minDist = Math.sqrt(Math.min(...points.map(p => distanceSquared(p, center))));
-  
-      if (minDist > bestMinDistance) {
-        bestCenter = center;
-        bestMinDistance = minDist;
-      }
-    }
-  
-    let center = bestCenter;
-    let startingRadius = bestMinDistance;
-  
-    // Now binary search for the best radius
-    let low = minRadius;
-    let high = startingRadius;
-    let bestValidRadius = low; // Keep track of the best valid one found
-  
-    const MAX_BINARY_SEARCH_STEPS = 50; // 2^50 ≈ 1e15, plenty
-    for (let step = 0; step < MAX_BINARY_SEARCH_STEPS; step++) {
-      const mid = (low + high) / 2;
-      if (noPointsStrictlyInside(points, center, mid)) {
-        bestValidRadius = mid;
-        low = mid; // Try larger
-      } else {
-        high = mid; // Try smaller
-      }
-  
-      if (Math.abs(high - low) < 1e-8) {
-        break; // Precision good enough
-      }
-    }
-  
-    return { radius: bestValidRadius, center };
-  } else if (circleType === "MCC") {
-    // For MCC (Minimum Circumscribed Circle), we want an initial circle that covers all points.
-    // A simple strategy is:
-    // 1. Find the axis-aligned bounding box (AABB) of the points.
-    // 2. Use the center of the bounding box as the initial circle center.
-    // 3. Set the radius to the maximum distance from this center to any point (plus a small epsilon).
-    //
-    // This guarantees:
-    // - All points are initially enclosed.
-    // - The radius is finite and reasonably tight (no infinity or absurdly large values).
-    // - A good neutral starting point for gradient descent optimization.
-    const xs = points.map(p => p[0]);
-    const ys = points.map(p => p[1]);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-
-    const maxDist = Math.max(...points.map(([px, py]) => Math.hypot(px - centerX, py - centerY)));
-
-    return { radius: maxDist - 1e-6, center: [centerX, centerY] };
-  } else if (circleType === "MZC") {
-    // Balance outer and inner points influence
-    // Compute outer convex hull
-    const outerConvexHull = computeConvexHull(points);
-
-    // Compute weighted mean: outer hull points (weight 2), inner points (weight 1)
-    const weights = new Array(points.length).fill(1);
-    const outerPointSet = new Set(outerConvexHull.map(pt => pt.toString()));
-    points.forEach((pt, i) => {
-      if (outerPointSet.has(pt.toString())) {
-        weights[i] = 2;
-      }
-    });
-
-    const weightedMean = meanWeighted(points, weights);
-    // Invert all points around weighted mean with normalized inversion
-    const pointsInverted = invertAtUnitCircleNormalized(points, weightedMean);
-    // Compute convex hull of inverted points
-    const invertedInnerHull = computeConvexHull(pointsInverted);
-    // Invert back to original coordinate system
-    const innerConvexHull = invertAtUnitCircleNormalized(invertedInnerHull, weightedMean);
-    const meanInnerPoints = mean(innerConvexHull);
-
-    return {
-      outerCircle: {
-        center: weightedMean,
-        radius: findFarthestPoint(points, weightedMean).distance
-      },
-      innerCircle: {
-        center: meanInnerPoints,
-        radius: findNearestPoint(points, meanInnerPoints).distance
-      }
-    };
-  }
-}
-
-/**
- * Computes the weighted mean (centroid) of a set of 2D points.
- * 
- * @param {Array<Array<number>>} points - Array of points [[x1, y1], [x2, y2], ...].
- * @param {Array<number>} weights - Array of weights corresponding to each point.
- * @returns {Array<number>} The weighted mean [x, y].
- */
-function meanWeighted(points, weights) {
-  let sumX = 0, sumY = 0, sumW = 0;
-  for (let i = 0; i < points.length; i++) {
-    sumX += points[i][0] * weights[i];
-    sumY += points[i][1] * weights[i];
-    sumW += weights[i];
-  }
-  return [sumX / sumW, sumY / sumW];
-}
-
-/**
- * Inverts a set of 2D points relative to a given center using normalized inversion.
- * 
- * Each point is mapped such that points closer to the center are pushed farther away,
- * and points farther from the center are pulled closer, using a 1/distance² scaling.
- * 
- * @param {Array<Array<number>>} points - Array of points [[x1, y1], [x2, y2], ...].
- * @param {Array<number>} center - The center [x, y] to invert points around.
- * @returns {Array<Array<number>>} Array of inverted points.
- */
-function invertAtUnitCircleNormalized(points, center) {
-  return points.map(p => {
-    const dx = p[0] - center[0];
-    const dy = p[1] - center[1];
-    const dist = Math.hypot(dx, dy);
-    if (dist === 0) return [center[0], center[1]]; // Avoid division by zero
-    const factor = 1 / (dist * dist); // Normalized inversion
-    return [center[0] + dx * factor, center[1] + dy * factor];
-  });
-}
-
-/**
- * Checks if no points lie strictly inside the given circle.
+ * This helper is intentionally deterministic and finite. It is a starting
+ * point generator, not an exact MIC/MCC/MZC solver.
  *
  * @param {Array<Array<number>>} points - The set of 2D points.
- * @param {Array<number>} center - The center of the circle [x, y].
- * @param {number} radius - The radius of the circle.
- * @returns {boolean} - `true` if no points are strictly inside, `false` otherwise.
+ * @param {string} circleType - "MIC", "MCC", or "MZC".
+ * @param {Object} leastSquaresCircle - Optional estimate with `a`, `b`, and `r`.
+ * @returns {Object} Initial solution with format depending on `circleType`.
  */
-function noPointsStrictlyInside(points, center, radius) {
-  for (const point of points) {
-    const distance = distanceSquared(point, center);
-    if (distance < radius * radius) {
-      return false;
+export function getInitialSolution(points, circleType, leastSquaresCircle = {}) {
+  assertNonEmptyPoints(points);
+
+  const hull = computeConvexHull(points);
+  const centerDomain = circleType === "MIC" ? points : hull;
+  const candidates = initialCenterCandidates(points, leastSquaresCircle)
+    .filter(center => centerDomain.length < 3 || isPointInPolygon(center, centerDomain));
+  const centers = candidates.length > 0 ? candidates : [mean(points)];
+
+  switch (circleType) {
+    case "MIC":
+      return centers
+        .map(center => ({
+          center,
+          radius: boundaryClearance(points, center),
+          domain: "POLYGON_INTERIOR",
+          profileReconstruction: "CHORDAL_POLYGON_FROM_ORDERED_SAMPLES"
+        }))
+        .reduce((best, candidate) => candidate.radius > best.radius ? candidate : best);
+
+    case "MCC": {
+      const center = boundingBoxCenter(points);
+      return { center, radius: maxDistance(points, center) };
     }
-  }
 
-  return true;
-}
+    case "MZC": {
+      const center = centers
+        .map(candidate => {
+          const innerRadius = minDistance(points, candidate);
+          const outerRadius = maxDistance(points, candidate);
+          return { center: candidate, innerRadius, outerRadius };
+        })
+        .reduce((best, candidate) => {
+          return candidate.outerRadius - candidate.innerRadius < best.outerRadius - best.innerRadius
+            ? candidate
+            : best;
+        });
 
-/**
- * Determines the orientation of three points.
- *
- * @param {Array<number>} p - The first point [x, y].
- * @param {Array<number>} q - The second point [x, y].
- * @param {Array<number>} r - The third point [x, y].
- * @returns {number} - 0 for collinear, 1 for clockwise, 2 for counterclockwise.
- */
-function orientation(p, q, r) {
-  // To find orientation of ordered triplet (p, q, r).
-  // The function returns following values
-  // 0 : Colinear points
-  // 1 : Clockwise points
-  // 2 : Counterclockwise points
-  const val = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1]);
-  if (val === 0) {
-    return 0;  // colinear
-  } else {
-    return (val > 0) ? 1 : 2; // clockwise or counterclock wise
+      return {
+        innerCircle: { center: center.center, radius: center.innerRadius },
+        outerCircle: { center: center.center, radius: center.outerRadius }
+      };
+    }
+
+    default:
+      throw new Error("Invalid circleType");
   }
 }
 
+function initialCenterCandidates(points, estimate) {
+  const candidates = [
+    mean(points),
+    boundingBoxCenter(points)
+  ];
+
+  if (Number.isFinite(estimate.a) && Number.isFinite(estimate.b)) {
+    candidates.unshift([estimate.a, estimate.b]);
+  }
+
+  if (estimate.center && Number.isFinite(estimate.center[0]) && Number.isFinite(estimate.center[1])) {
+    candidates.unshift([estimate.center[0], estimate.center[1]]);
+  }
+
+  return uniquePoints(candidates);
+}
+
+function boundingBoxCenter(points) {
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+
+  return [
+    (Math.min(...xs) + Math.max(...xs)) / 2,
+    (Math.min(...ys) + Math.max(...ys)) / 2
+  ];
+}
+
+function minDistance(points, center) {
+  return findNearestPoint(points, center).distance;
+}
+
+function maxDistance(points, center) {
+  return findFarthestPoint(points, center).distance;
+}
+
+function boundaryClearance(points, center) {
+  let clearanceSquared = Infinity;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    clearanceSquared = Math.min(
+      clearanceSquared,
+      distanceToSegmentSquared(center, points[j], points[i])
+    );
+  }
+  return Math.sqrt(clearanceSquared);
+}
+
 /**
- * Finds the nearest point to the given reference point from a set of points.
+ * Finds the nearest point to a reference point.
  *
- * @param {Array<Array<number>>} points - The set of points to search through.
- * @param {Array<number>} point - The reference point [x, y].
- * @returns {Object} - The nearest point and its distance: `{ point, distance }`.
+ * @param {Array<Array<number>>} points - Points to search.
+ * @param {Array<number>} point - Reference point [x, y].
+ * @returns {{point: Array<number>, distance: number}} Nearest point and distance.
  */
 export function findNearestPoint(points, point) {
-  let minDistance = Infinity;
+  assertNonEmptyPoints(points);
+
+  let minDistanceSquared = Infinity;
   let nearestPoint = null;
 
-  for (const p of points) {
-    const distance = distanceSquared(p, point);
-    if (distance < minDistance) {
-      minDistance = distance;
-      nearestPoint = p;
+  for (const candidate of points) {
+    const candidateDistance = distanceSquared(candidate, point);
+    if (candidateDistance < minDistanceSquared) {
+      minDistanceSquared = candidateDistance;
+      nearestPoint = candidate;
     }
   }
-  return { point: nearestPoint, distance: Math.sqrt(minDistance) };
+
+  return { point: nearestPoint, distance: Math.sqrt(minDistanceSquared) };
 }
 
 /**
- * Finds the farthest point from the given reference point in a set of points.
+ * Finds the farthest point from a reference point.
  *
- * @param {Array<Array<number>>} points - The set of points to search through.
- * @param {Array<number>} point - The reference point [x, y].
- * @returns {Object} - The farthest point and its distance: `{ point, distance }`.
+ * @param {Array<Array<number>>} points - Points to search.
+ * @param {Array<number>} point - Reference point [x, y].
+ * @returns {{point: Array<number>, distance: number}} Farthest point and distance.
  */
 export function findFarthestPoint(points, point) {
-  let maxDistance = Infinity;
+  assertNonEmptyPoints(points);
+
+  let maxDistanceSquared = -Infinity;
   let farthestPoint = null;
 
-  for (const p of points) {
-    const distance = distanceSquared(p, point);
-    if (distance > maxDistance) {
-      maxDistance = distance;
-      farthestPoint = p;
+  for (const candidate of points) {
+    const candidateDistance = distanceSquared(candidate, point);
+    if (candidateDistance > maxDistanceSquared) {
+      maxDistanceSquared = candidateDistance;
+      farthestPoint = candidate;
     }
   }
 
-  return { point: farthestPoint, distance: Math.sqrt(maxDistance) };
+  return { point: farthestPoint, distance: Math.sqrt(maxDistanceSquared) };
 }
 
 /**
- * Checks if a point is inside a polygon using the ray casting algorithm.
+ * Checks if a point is inside a polygon. Points on the boundary are considered
+ * inside by default.
  *
  * @param {Array<number>} point - The point to check [x, y].
- * @param {Array<Array<number>>} polygon - The vertices of the polygon in order.
- * @returns {boolean} - `true` if the point is inside the polygon, `false` otherwise.
+ * @param {Array<Array<number>>} polygon - Polygon vertices.
+ * @param {boolean} [includeBoundary=true] - Whether boundary points count.
+ * @returns {boolean} True if the point is inside the polygon.
  */
-export function isPointInPolygon(point, polygon) {
+export function isPointInPolygon(point, polygon, includeBoundary = true) {
+  if (!Array.isArray(polygon) || polygon.length === 0) {
+    return false;
+  }
+
+  if (includeBoundary && isPointOnPolygonBoundary(point, polygon)) {
+    return true;
+  }
+
+  if (polygon.length < 3) {
+    return false;
+  }
+
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i][0], yi = polygon[i][1];
-    const xj = polygon[j][0], yj = polygon[j][1];
-    const intersect = ((yi > point[1]) != (yj > point[1]))
-      && (point[0] < (xj - xi) * (point[1] - yi) / (yj - yi) + xi);
-    if (intersect) {
+    const xi = polygon[i][0];
+    const yi = polygon[i][1];
+    const xj = polygon[j][0];
+    const yj = polygon[j][1];
+    const intersects = (yi > point[1]) !== (yj > point[1]) &&
+      point[0] < ((xj - xi) * (point[1] - yi)) / (yj - yi) + xi;
+
+    if (intersects) {
       inside = !inside;
     }
   }
+
   return inside;
+}
+
+export function isPointOnPolygonBoundary(point, polygon, epsilon = GEOMETRY_EPSILON) {
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    if (distanceToSegmentSquared(point, polygon[j], polygon[i]) <= epsilon * epsilon) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function distanceToSegmentSquared(point, start, end) {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (lengthSquared <= GEOMETRY_EPSILON) {
+    return distanceSquared(point, start);
+  }
+
+  const t = Math.max(
+    0,
+    Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSquared)
+  );
+  const projection = [start[0] + t * dx, start[1] + t * dy];
+
+  return distanceSquared(point, projection);
+}
+
+function assertNonEmptyPoints(points) {
+  if (!Array.isArray(points) || points.length === 0) {
+    throw new Error("At least one point is required.");
+  }
 }

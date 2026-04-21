@@ -1,19 +1,30 @@
-import { areConcentric, computeConvexHull, distanceSquared, findFarthestPoint, findNearestPoint, getInitialSolution, getRandomBetween, isPointInPolygon } from './utils.js';
+import {
+  computeConvexHull,
+  isPointInPolygon
+} from './utils.js';
+import {
+  refineRoundnessCenter,
+  roundnessResultFromCenter
+} from './roundness_refinement.js';
 
 /**
  * Simulated annealing optimizer with equilibrium steps.
  *
+ * The annealed state is the candidate center. MIC uses clearance to the
+ * reconstructed closed profile boundary; MCC/MZC use extracted profile points.
+ *
  * @param {Array<Array<number>>} points - The input point set.
  * @param {string} circleType - "MIC", "MCC", or "MZC".
- * @param {Object} initialEstimate - Initial estimate of circle parameters.
- * @param {number} stepSize - Perturbation scale.
+ * @param {Object|Array<number>} initialEstimate - Initial estimate.
+ * @param {number} stepSize - Initial perturbation scale.
  * @param {Object} [options] - Optional configuration parameters.
  * @param {number} [options.initialTemperature=1000] - Starting temperature.
  * @param {Object} [options.coolingType={ type: 'logarithmic', rate: 0.1 }] - Cooling schedule object.
  * @param {number} [options.maxIterations=1000] - Number of temperature drops.
  * @param {number} [options.equilibriumSteps=20] - Number of neighbors tried per temperature.
  * @param {number} [options.maxNeighborIterations=5000] - Max tries to generate a valid neighbor.
- * @returns {Object} The best solution found as: { center: [x, y], radius: r }
+ * @param {Function} [options.random=Math.random] - Random source returning values in [0, 1).
+ * @returns {Object} The best solution found.
  */
 function simulatedAnnealing(
   points,
@@ -25,33 +36,44 @@ function simulatedAnnealing(
     coolingType = { type: 'logarithmic', rate: 0.1 },
     maxIterations = 1000,
     equilibriumSteps = 20,
-    maxNeighborIterations = 5000
+    maxNeighborIterations = 5000,
+    random = Math.random
   } = {}
 ) {
-  const initialSolution = getInitialSolution(points, circleType, initialEstimate);
+  assertAnnealingInputs(points, circleType);
+  assertRandom(random);
 
-  let currentSolution = initialSolution;
-  let bestSolution = initialSolution;
-  const convexHull = computeConvexHull(points);
-  let currentEnergy = calculateEnergy(currentSolution, circleType, points, convexHull);
+  const convexHull = computeConvexHull(points.map(point => [...point]));
+  const baseStepSize = getBaseStepSize(points, stepSize);
+  let currentSolution = getInitialSolution(points, circleType, initialEstimate, convexHull);
+  let currentEnergy = calculateEnergy(currentSolution, circleType);
+  let bestSolution = currentSolution;
   let bestEnergy = currentEnergy;
 
   for (let i = 0; i < maxIterations; i++) {
     const temperature = temperatureSchedule(initialTemperature, i, coolingType);
-    const adaptiveStepSize = stepSize * temperature;
+    const temperatureRatio = initialTemperature > 0 ? temperature / initialTemperature : 1;
+    const adaptiveStepSize = baseStepSize * Math.max(temperatureRatio, 1e-6);
 
     for (let j = 0; j < equilibriumSteps; j++) {
-      const neighbor = generateNeighbor(points, convexHull, circleType, currentSolution, maxNeighborIterations, adaptiveStepSize);
+      const neighbor = generateNeighbor(
+        points,
+        convexHull,
+        circleType,
+        currentSolution,
+        maxNeighborIterations,
+        adaptiveStepSize,
+        random
+      );
+
       if (!neighbor) {
         continue;
       }
 
-      const newEnergy = calculateEnergy(neighbor, circleType, points, convexHull);
+      const newEnergy = calculateEnergy(neighbor, circleType);
       const deltaEnergy = newEnergy - currentEnergy;
 
-      const accept = deltaEnergy < 0;
-
-      if (accept) {
+      if (shouldAcceptNeighbor(deltaEnergy, temperature, random)) {
         currentSolution = neighbor;
         currentEnergy = newEnergy;
 
@@ -61,14 +83,143 @@ function simulatedAnnealing(
         }
       }
     }
+  }
 
-    if (i + 1 === maxIterations) {
-      console.log("Reached max iterations for SA: " + i);
+  const refinedCenter = refineRoundnessCenter(
+    points,
+    circleType,
+    centerFromSolution(bestSolution)
+  );
+  return roundnessResultFromCenter(points, circleType, refinedCenter);
+}
+
+function assertAnnealingInputs(points, circleType) {
+  if (!Array.isArray(points) || points.length < 3) {
+    throw new Error("At least three points are required.");
+  }
+
+  if (!["MIC", "MCC", "MZC"].includes(circleType)) {
+    throw new Error("Invalid circleType");
+  }
+}
+
+function assertRandom(random) {
+  if (typeof random !== 'function') {
+    throw new Error("random must be a function.");
+  }
+}
+
+function getBaseStepSize(points, stepSize) {
+  if (Number.isFinite(stepSize) && stepSize > 0) {
+    return stepSize;
+  }
+
+  return boundingBoxDiagonal(points) / 100;
+}
+
+function getInitialSolution(points, circleType, initialEstimate, convexHull) {
+  const centerDomain = circleType === "MIC" ? points : convexHull;
+  const candidates = getInitialCenters(points, initialEstimate)
+    .filter(center => isAllowedCenter(center, circleType, points, centerDomain));
+
+  if (candidates.length === 0) {
+    candidates.push(meanPoint(points));
+  }
+
+  return candidates
+    .map(center => solutionFromCenter(points, circleType, center))
+    .reduce((best, candidate) => {
+      return calculateEnergy(candidate, circleType) < calculateEnergy(best, circleType)
+        ? candidate
+        : best;
+    });
+}
+
+function getInitialCenters(points, initialEstimate) {
+  const centers = [];
+
+  if (Array.isArray(initialEstimate)) {
+    centers.push([initialEstimate[0], initialEstimate[1]]);
+  }
+
+  if (initialEstimate?.center) {
+    centers.push([initialEstimate.center[0], initialEstimate.center[1]]);
+  }
+
+  if (Number.isFinite(initialEstimate?.a) && Number.isFinite(initialEstimate?.b)) {
+    centers.push([initialEstimate.a, initialEstimate.b]);
+  }
+
+  centers.push(meanPoint(points));
+  centers.push(boundingBoxCenter(points));
+
+  return uniqueCenters(centers);
+}
+
+function uniqueCenters(centers) {
+  const seen = new Set();
+  const result = [];
+
+  for (const center of centers) {
+    if (!Number.isFinite(center[0]) || !Number.isFinite(center[1])) {
+      continue;
+    }
+
+    const key = `${center[0]},${center[1]}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(center);
     }
   }
 
-  // console.log("Best solution found at iteration = " + bestIteration + ", energy = " + bestEnergy + ", temperature = " + bestTemperature);
-  return bestSolution;
+  return result;
+}
+
+function meanPoint(points) {
+  const sum = points.reduce(
+    ([sumX, sumY], [x, y]) => [sumX + x, sumY + y],
+    [0, 0]
+  );
+
+  return [sum[0] / points.length, sum[1] / points.length];
+}
+
+function boundingBoxCenter(points) {
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  return [
+    (Math.min(...xs) + Math.max(...xs)) / 2,
+    (Math.min(...ys) + Math.max(...ys)) / 2
+  ];
+}
+
+function boundingBoxDiagonal(points) {
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  return Math.hypot(
+    Math.max(...xs) - Math.min(...xs),
+    Math.max(...ys) - Math.min(...ys)
+  );
+}
+
+function centerFromSolution(solution) {
+  return solution.center || solution.outerCircle.center;
+}
+
+function solutionFromCenter(points, circleType, center) {
+  return roundnessResultFromCenter(points, circleType, center);
+}
+
+function shouldAcceptNeighbor(deltaEnergy, temperature, random) {
+  if (deltaEnergy < 0) {
+    return true;
+  }
+
+  if (temperature <= 0 || !Number.isFinite(deltaEnergy)) {
+    return false;
+  }
+
+  return random() < Math.exp(-deltaEnergy / temperature);
 }
 
 /**
@@ -88,16 +239,19 @@ function temperatureSchedule(initialTemperature, i, coolingType) {
       return initialTemperature * coolingType.rate ** i;
     case 'linear':
       if (coolingType.rate <= 0) {
-        throw new Error("The cooling rate for linear cooling must strictly greater than 0.");
+        throw new Error("The cooling rate for linear cooling must be strictly greater than 0.");
       }
-      return initialTemperature * coolingType.rate ** i;
+      return Math.max(0, initialTemperature - coolingType.rate * i);
     case 'logarithmic':
       return initialTemperature / Math.log(i + 2);
+    default:
+      throw new Error("Unknown cooling schedule type: " + coolingType.type);
   }
 }
 
 /**
- * Generates a valid neighbor solution for MIC, MCC, or MZC by perturbing the current solution.
+ * Generates a valid neighbor solution for MIC, MCC, or MZC by perturbing the
+ * current center.
  *
  * @param {Array<Array<number>>} points - 2D point cloud.
  * @param {Array<Array<number>>} convexHull - Convex hull for center constraint.
@@ -107,136 +261,59 @@ function temperatureSchedule(initialTemperature, i, coolingType) {
  * @param {number} stepSize - Perturbation scale.
  * @returns {Object|null} - Valid neighbor or null if none found.
  */
-function generateNeighbor(points, convexHull, circleType, currentSolution, maxNeighborIterations, stepSize) {
+function generateNeighbor(
+  points,
+  convexHull,
+  circleType,
+  currentSolution,
+  maxNeighborIterations,
+  stepSize,
+  random
+) {
+  const currentCenter = centerFromSolution(currentSolution);
+
   for (let attempt = 0; attempt < maxNeighborIterations; attempt++) {
-    if (circleType === "MZC") {
-      // Clone concentric center and radii
-      let newCenter = [...currentSolution.outerCircle.center];
-      let innerRadius = currentSolution.innerCircle.radius;
-      let outerRadius = currentSolution.outerCircle.radius;
+    const newCenter = [
+      currentCenter[0] + randomBetween(random, -stepSize, stepSize),
+      currentCenter[1] + randomBetween(random, -stepSize, stepSize)
+    ];
 
-      // Perturb center
-      if (Math.random() < 0.6) {
-        newCenter = [
-          newCenter[0] + getRandomBetween(-stepSize, stepSize),
-          newCenter[1] + getRandomBetween(-stepSize, stepSize)
-        ];
-        if (!isPointInPolygon(newCenter, convexHull)) continue;
-      }
-
-      // Perturb inner and/or outer radii independently
-      if (Math.random() < 0.6) {
-        innerRadius += getRandomBetween(-stepSize, stepSize);
-        innerRadius = Math.max(0, innerRadius);
-      }
-      if (Math.random() < 0.6) {
-        outerRadius += getRandomBetween(-stepSize, stepSize);
-        outerRadius = Math.max(innerRadius + 1e-6, outerRadius); // Ensure outer > inner
-      }
-
-      const neighbor = {
-        innerCircle: { center: newCenter, radius: innerRadius },
-        outerCircle: { center: newCenter, radius: outerRadius }
-      };
-
-      const valid = points.every(p => {
-        const d = Math.sqrt(distanceSquared(p, newCenter));
-        return d >= innerRadius && d <= outerRadius;
-      });
-
-      if (valid) return neighbor;
-    } else {
-      // MIC or MCC
-      const changeCenter = Math.random() < 0.6;
-      const changeRadius = Math.random() < 0.6;
-
-      let newCenter = [...currentSolution.center];
-      let newRadius = currentSolution.radius;
-
-      if (changeCenter) {
-        const dx = getRandomBetween(-stepSize, stepSize);
-        const dy = getRandomBetween(-stepSize, stepSize);
-        newCenter = [newCenter[0] + dx, newCenter[1] + dy];
-        if (!isPointInPolygon(newCenter, convexHull)) continue;
-      }
-
-      if (changeRadius) {
-        const dr = getRandomBetween(0, stepSize);
-        if (circleType === "MIC") {
-          newRadius += dr;
-        } else if (circleType === "MCC") {
-          newRadius = Math.max(0, newRadius - dr);
-        }
-      }
-
-      const neighbor = {
-        center: newCenter,
-        radius: newRadius
-      };
-
-      const valid = points.every(p => {
-        const d2 = distanceSquared(p, newCenter);
-        if (circleType === "MIC") {
-          return d2 >= newRadius * newRadius;
-        } else {
-          // MCC
-          return d2 <= newRadius * newRadius;
-        }
-      });
-
-      if (valid) {
-        return neighbor;
-      }
+    if (!isAllowedCenter(newCenter, circleType, points, convexHull)) {
+      continue;
     }
+
+    return solutionFromCenter(points, circleType, newCenter);
   }
 
   return null;
 }
 
+function randomBetween(random, min, max) {
+  return random() * (max - min) + min;
+}
+
+function isAllowedCenter(center, circleType, points, convexHull) {
+  const domain = circleType === "MIC" ? points : convexHull;
+  return isPointInPolygon(center, domain);
+}
 
 /**
- * Calculates the energy (cost) of a given circle solution based on geometric criteria.
- * Lower energy means a better solution.
- *
- * For MIC: maximize the minimum distance to any point (i.e., maximize inscribed radius).
- * For MCC: minimize the maximum distance to any point (i.e., minimize circumscribed radius).
- * For MZC: minimize the radial difference between the outer and inner concentric circles,
- *          ensuring all points lie within the band.
+ * Calculates the energy (cost) of a given circle solution. Lower is better.
  *
  * @param {Object} solution - The circle solution to evaluate.
  * @param {string} circleType - The type of circle ("MIC", "MCC", or "MZC").
- * @param {Array<Array<number>>} points - The set of 2D points.
- * @param {Array<Array<number>>} convexHull - The convex hull of the point set (for MZC validation).
- * @returns {number} - The energy score; lower values are better.
+ * @returns {number} - The energy score.
  */
-function calculateEnergy(solution, circleType, points, convexHull) {
+function calculateEnergy(solution, circleType) {
   switch (circleType) {
-    case "MIC": {
-      const minDist = Math.min(...points.map(p => Math.sqrt(distanceSquared(p, solution.center))));
-      return -minDist; // Maximize min distance
-    }
-
-    case "MCC": {
-      const maxDist = Math.max(...points.map(p => Math.sqrt(distanceSquared(p, solution.center))));
-      return maxDist; // Minimize max distance
-    }
-
-    case "MZC": {
-      const inner = solution.innerCircle;
-      const outer = solution.outerCircle;
-
-      // Penalty if points are outside the band or not concentric
-      const outerViolations = points.some(p => Math.sqrt(distanceSquared(p, outer.center)) > outer.radius);
-      const innerViolations = points.some(p => Math.sqrt(distanceSquared(p, inner.center)) < inner.radius);
-      const notConcentric = !areConcentric(inner, outer);
-
-      if (outerViolations || innerViolations || notConcentric) {
-        return Infinity;
-      }
-
-      const bandWidth = outer.radius - inner.radius;
-      return bandWidth; // Minimize width of the band
-    }
+    case "MIC":
+      return -solution.radius;
+    case "MCC":
+      return solution.radius;
+    case "MZC":
+      return solution.zoneWidth;
+    default:
+      throw new Error("Invalid circleType");
   }
 }
 
